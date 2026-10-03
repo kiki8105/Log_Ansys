@@ -1,0 +1,106 @@
+schema_version: "1.0"
+profile: "general_controller_tuning"
+
+segmentation:
+  hover_hspd_max: 2.0
+  hover_vz_max: 0.5
+  climb_vz_min: 0.8
+
+response_feature:
+  min_step_amplitude: 0.12
+  min_step_gap_s: 0.6
+  window_s: 2.5
+  settling_band_ratio: 0.05
+  rise_target_ratio: 0.9
+
+confidence:
+  base: 90.0
+  min_maneuvers: 2
+  min_samples: 240
+  sat_warn: 8.0
+  sat_problem: 20.0
+  vib_warn: 3.5
+  vib_problem: 6.0
+  innov_warn: 5.0
+  innov_problem: 10.0
+
+rate_loop:
+  overshoot_warn: 18.0
+  overshoot_problem: 35.0
+  rise_time_warn: 0.55
+  rise_time_problem: 1.20
+  settling_time_warn: 1.20
+  settling_time_problem: 2.50
+  steady_state_error_warn: 0.12
+  steady_state_error_problem: 0.30
+  oscillation_warn: 14.0
+  oscillation_problem: 30.0
+  dominant_freq_warn: 10.0
+  dominant_freq_problem: 18.0
+  saturation_warn: 8.0
+  saturation_problem: 20.0
+  vibration_warn: 3.5
+  vibration_problem: 6.0
+  effort_var_warn: 0.12
+  effort_var_problem: 0.25
+  innovation_warn: 5.0
+  innovation_problem: 10.0
+
+vtol_transition:
+  duration_warn: 16.0
+  duration_problem: 24.0
+  alt_loss_warn: 8.0
+  alt_loss_problem: 18.0
+  innovation_warn: 5.0
+  innovation_problem: 10.0
+
+attitude_loop:
+  # Step-response thresholds (angles in degrees, time in seconds).
+  min_step_amplitude_deg: 8.0
+  min_step_gap_s: 0.8
+  window_s: 3.0
+  settling_band_ratio: 0.05
+  rise_target_ratio: 0.9
+  overshoot_warn: 15.0
+  overshoot_problem: 30.0
+  rise_time_warn: 0.8
+  rise_time_problem: 1.5
+  settling_time_warn: 1.5
+  settling_time_problem: 3.0
+  # Mean absolute attitude tracking error across the full log (degrees).
+  attitude_mae_warn: 3.0
+  attitude_mae_problem: 8.0
+
+rate_limit:
+  # % of time |rate_setpoint| >= near_threshold_ratio * MC_*RATE_MAX.
+  near_threshold_ratio: 0.95
+  saturation_warn: 5.0
+  saturation_problem: 15.0
+
+acc_limit:
+  # % of time horizontal/vertical acceleration command >= near * MPC_ACC_*_MAX.
+  near_threshold_ratio: 0.95
+  saturation_warn: 5.0
+  saturation_problem: 15.0
+
+tilt_limit:
+  # % of time setpoint tilt (deg) >= near * MPC_TILTMAX_AIR (deg).
+  near_threshold_ratio: 0.95
+  saturation_warn: 5.0
+  saturation_problem: 15.0
+
+tecs_altitude:
+  # Altitude tracking error (m) in forward-flight segments.
+  altitude_mae_warn: 4.0
+  altitude_mae_problem: 10.0
+  # % of time descending/climbing setpoint rate hits FW_T_CLMB_MAX / FW_T_SINK_MIN.
+  saturation_warn: 5.0
+  saturation_problem: 15.0
+
+tecs_airspeed:
+  # True airspeed tracking error (m/s) in forward-flight segments.
+  airspeed_mae_warn: 2.0
+  airspeed_mae_problem: 5.0
+  # Airspeed residual RMS (m/s) — sensor consistency proxy when ground speed is available.
+  residual_rms_warn: 1.5
+  residual_rms_problem: 3.5

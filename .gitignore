@@ -1,0 +1,66 @@
+# Python cache / build
+__pycache__/
+build/
+dist/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Local runtime artifacts
+# (2026-10-03) 원본 입력과 재생성 가능한 캐시/로그를 소스 트리와 분리합니다.
+.cache/
+runtime/
+data/raw/
+data/maps/
+layouts/
+*.parquet
+*.ulg
+*.bag
+*.db3
+*.mcap
+*.tlog
+*.bin
+*.zip
+*.7z
+
+# Local secrets / signing material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets*.yaml
+secrets*.yml
+
+# PERF_DEBUG session logs
+perf_logs/*.log
+
+# Generated image created by build.py from the splash JPG
+assets/splash/*.rgb.png
+
+# User-supplied branding (kept local; public defaults are neutral)
+assets/icons/custom_app.ico
+assets/splash/custom_splash.png
+
+# Backup / tooling folders
+backups/
+tools/

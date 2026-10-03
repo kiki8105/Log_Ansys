@@ -1,0 +1,692 @@
+schema_version: "1.0"
+registry_name: "Log ansys Control Tuning Advisor Registry"
+description: >
+  Advisor metadata/registry for staged expansion.
+  This file defines advisor taxonomy, target airframes, topic dependencies,
+  core metrics, severity thresholds, summary messages, and tooltip templates.
+
+ui_defaults:
+  cell_template: "{severity_label} | {confidence_text}{candidate_part}"
+  severity_labels:
+    normal: "정상"
+    warning: "경고"
+    problem: "문제"
+    unavailable: "N/A"
+  tooltip_section_labels:
+    likely_causes: "Likely Causes"
+    software_actions: "Software Actions"
+    hardware_actions: "Hardware Actions"
+    verification_checklist: "Verification Checklist"
+    candidates: "Candidates"
+    advisor_hint: "Advisor Hint"
+    issue_id: "issue_id"
+    severity: "Severity"
+    confidence: "Confidence"
+    evidence: "Evidence"
+  empty_texts:
+    tuning_issue_unavailable: "튜닝 이슈 정보 없음"
+    priority_checks_unavailable: "Priority checks unavailable"
+    advisor_description: "Advisor detail unavailable"
+    cell_unavailable: "N/A"
+
+layers:
+  - id: "control"
+    display_name: "Control"
+    description: "Control-loop response and tracking quality advisors."
+  - id: "estimation"
+    display_name: "Estimation"
+    description: "Estimator consistency / innovation / health impact advisors."
+  - id: "actuation"
+    display_name: "Actuation"
+    description: "Actuator authority and saturation advisors."
+  - id: "energy"
+    display_name: "Energy"
+    description: "TECS / speed-height energy management advisors."
+  - id: "vehicle_specific"
+    display_name: "Vehicle-Specific"
+    description: "Airframe/mode specific advisors (e.g., VTOL transition)."
+
+expansion_policy:
+  stage: "phase_1_expansion"
+  principle:
+    - "Do not add advisors in bulk; add by operational priority."
+    - "Each advisor must define required topics and fallback behavior."
+    - "Severity result is recommendation-oriented, not deterministic diagnosis."
+  first_wave_ids:
+    - "advisor_controller_saturation"
+    - "advisor_vibration_impact"
+    - "advisor_estimator_health_impact"
+    - "advisor_tecs_altitude_response"
+    - "advisor_tecs_airspeed_response"
+    - "advisor_transition_altitude_loss"
+    - "advisor_forward_flight_response"
+
+advisors:
+  - advisor_id: "advisor_roll_rate_loop"
+    display_name: "Roll Rate Loop"
+    layer: "control"
+    priority: 0
+    issue_ids: ["rate_loop_roll"]
+    axis: "roll"
+    scope: "rate_loop"
+    target_airframes: ["MULTICOPTER", "FIXED_WING", "VTOL"]
+    applicable_segments: ["step_like", "hover", "climb", "maneuver"]
+    required_topics:
+      - "vehicle_rates_setpoint.roll"
+      - "vehicle_angular_velocity.xyz[0]"
+    core_metrics:
+      - key: "overshoot_percent"
+        expression: "rate_loop_roll.metric_value.overshoot_percent"
+        unit: "%"
+        direction: "higher_is_worse"
+    severity:
+      warn: 0.0
+      problem: 0.0
+      rule: "legacy issue severity from rate-loop inference"
+    summary:
+      normal: "rate tracking error, actuator saturation, P/D balance"
+      warning: "rate tracking error, actuator saturation, P/D balance"
+      problem: "rate tracking error, actuator saturation, P/D balance"
+    tooltip:
+      title: "Roll Rate Loop Advisor"
+      normal: "Roll axis rate-loop tuning assessment."
+      warning: "Roll axis rate-loop tuning assessment."
+      problem: "Roll axis rate-loop tuning assessment."
+    priority_checks:
+      - "rate tracking error"
+      - "actuator saturation"
+      - "P/D balance"
+    description: "Roll axis rate-loop tuning assessment"
+
+  - advisor_id: "advisor_pitch_rate_loop"
+    display_name: "Pitch Rate Loop"
+    layer: "control"
+    priority: 0
+    issue_ids: ["rate_loop_pitch"]
+    axis: "pitch"
+    scope: "rate_loop"
+    target_airframes: ["MULTICOPTER", "FIXED_WING", "VTOL"]
+    applicable_segments: ["step_like", "hover", "climb", "maneuver"]
+    required_topics:
+      - "vehicle_rates_setpoint.pitch"
+      - "vehicle_angular_velocity.xyz[1]"
+    core_metrics:
+      - key: "overshoot_percent"
+        expression: "rate_loop_pitch.metric_value.overshoot_percent"
+        unit: "%"
+        direction: "higher_is_worse"
+    severity:
+      warn: 0.0
+      problem: 0.0
+      rule: "legacy issue severity from rate-loop inference"
+    summary:
+      normal: "rate tracking error, damping, saturation"
+      warning: "rate tracking error, damping, saturation"
+      problem: "rate tracking error, damping, saturation"
+    tooltip:
+      title: "Pitch Rate Loop Advisor"
+      normal: "Pitch axis rate-loop tuning assessment."
+      warning: "Pitch axis rate-loop tuning assessment."
+      problem: "Pitch axis rate-loop tuning assessment."
+    priority_checks:
+      - "rate tracking error"
+      - "damping"
+      - "saturation"
+    description: "Pitch axis rate-loop tuning assessment"
+
+  - advisor_id: "advisor_yaw_rate_loop"
+    display_name: "Yaw Rate Loop"
+    layer: "control"
+    priority: 0
+    issue_ids: ["rate_loop_yaw"]
+    axis: "yaw"
+    scope: "rate_loop"
+    target_airframes: ["MULTICOPTER", "FIXED_WING", "VTOL"]
+    applicable_segments: ["step_like", "hover", "climb", "maneuver"]
+    required_topics:
+      - "vehicle_rates_setpoint.yaw"
+      - "vehicle_angular_velocity.xyz[2]"
+    core_metrics:
+      - key: "overshoot_percent"
+        expression: "rate_loop_yaw.metric_value.overshoot_percent"
+        unit: "%"
+        direction: "higher_is_worse"
+    severity:
+      warn: 0.0
+      problem: 0.0
+      rule: "legacy issue severity from rate-loop inference"
+    summary:
+      normal: "yaw damping, rate response, saturation"
+      warning: "yaw damping, rate response, saturation"
+      problem: "yaw damping, rate response, saturation"
+    tooltip:
+      title: "Yaw Rate Loop Advisor"
+      normal: "Yaw axis rate-loop tuning assessment."
+      warning: "Yaw axis rate-loop tuning assessment."
+      problem: "Yaw axis rate-loop tuning assessment."
+    priority_checks:
+      - "yaw damping"
+      - "rate response"
+      - "saturation"
+    description: "Yaw axis rate-loop tuning assessment"
+
+  # --- Depth expansion: attitude loop (MC + VTOL hover-mode) ---
+  - advisor_id: "advisor_roll_attitude_loop"
+    display_name: "Roll Attitude Loop"
+    layer: "control"
+    priority: 0
+    issue_ids: ["attitude_loop_roll"]
+    axis: "roll"
+    scope: "attitude_loop"
+    target_airframes: ["MULTICOPTER", "FIXED_WING", "VTOL"]
+    applicable_segments: ["attitude_step", "hover", "maneuver"]
+    required_topics:
+      - "vehicle_attitude_setpoint"
+      - "vehicle_attitude"
+    severity:
+      warn: 0.0
+      problem: 0.0
+      rule: "attitude tracking error / step response severity"
+    summary:
+      normal: "attitude tracking, attitude P balance"
+      warning: "attitude tracking error, attitude P retune"
+      problem: "attitude tracking error, attitude P retune"
+    tooltip:
+      title: "Roll Attitude Loop Advisor"
+      normal: "Roll axis attitude-loop tuning assessment."
+      warning: "Roll axis attitude-loop tuning assessment."
+      problem: "Roll axis attitude-loop tuning assessment."
+    priority_checks:
+      - "attitude tracking error"
+      - "attitude P balance"
+      - "saturation 동반 여부"
+    description: "Roll axis attitude-loop (MC_ROLL_P) response assessment"
+
+  - advisor_id: "advisor_pitch_attitude_loop"
+    display_name: "Pitch Attitude Loop"
+    layer: "control"
+    priority: 0
+    issue_ids: ["attitude_loop_pitch"]
+    axis: "pitch"
+    scope: "attitude_loop"
+    target_airframes: ["MULTICOPTER", "FIXED_WING", "VTOL"]
+    applicable_segments: ["attitude_step", "hover", "maneuver"]
+    required_topics:
+      - "vehicle_attitude_setpoint"
+      - "vehicle_attitude"
+    severity: { warn: 0.0, problem: 0.0, rule: "attitude tracking error / step response severity" }
+    summary:
+      normal: "attitude tracking, attitude P balance"
+      warning: "attitude tracking error, attitude P retune"
+      problem: "attitude tracking error, attitude P retune"
+    tooltip:
+      title: "Pitch Attitude Loop Advisor"
+      normal: "Pitch axis attitude-loop tuning assessment."
+      warning: "Pitch axis attitude-loop tuning assessment."
+      problem: "Pitch axis attitude-loop tuning assessment."
+    priority_checks: ["attitude tracking error", "attitude P balance", "saturation 동반 여부"]
+    description: "Pitch axis attitude-loop (MC_PITCH_P) response assessment"
+
+  - advisor_id: "advisor_yaw_attitude_loop"
+    display_name: "Yaw Attitude Loop"
+    layer: "control"
+    priority: 0
+    issue_ids: ["attitude_loop_yaw"]
+    axis: "yaw"
+    scope: "attitude_loop"
+    target_airframes: ["MULTICOPTER", "FIXED_WING", "VTOL"]
+    applicable_segments: ["attitude_step", "hover", "maneuver"]
+    required_topics:
+      - "vehicle_attitude_setpoint"
+      - "vehicle_attitude"
+    severity: { warn: 0.0, problem: 0.0, rule: "attitude tracking error / step response severity" }
+    summary:
+      normal: "yaw heading tracking, yaw P balance"
+      warning: "yaw heading tracking error, yaw P retune"
+      problem: "yaw heading tracking error, yaw P retune"
+    tooltip:
+      title: "Yaw Attitude Loop Advisor"
+      normal: "Yaw axis attitude-loop tuning assessment."
+      warning: "Yaw axis attitude-loop tuning assessment."
+      problem: "Yaw axis attitude-loop tuning assessment."
+    priority_checks: ["yaw heading tracking error", "yaw P balance", "saturation 동반 여부"]
+    description: "Yaw axis attitude-loop (MC_YAW_P) response assessment"
+
+  # --- Depth expansion: rate-MAX saturation ---
+  - advisor_id: "advisor_roll_rate_limit"
+    display_name: "Roll Rate-MAX Saturation"
+    layer: "control"
+    priority: 1
+    issue_ids: ["rate_limit_saturation_roll"]
+    axis: "roll"
+    scope: "rate_limit"
+    target_airframes: ["MULTICOPTER", "VTOL"]
+    applicable_segments: ["all", "maneuver"]
+    required_topics: ["vehicle_rates_setpoint"]
+    optional_topics: ["actuator_outputs"]
+    severity:
+      warn: 5.0
+      problem: 15.0
+      rule: "saturation_ratio_percent against MC_ROLLRATE_MAX"
+    summary:
+      normal: "rate setpoint이 MAX 대비 여유 있음"
+      warning: "rate setpoint이 MAX에 자주 도달 — attitude P 또는 mission 검토"
+      problem: "rate setpoint이 MAX에 빈번하게 도달 — limit 또는 attitude P 재조정"
+    tooltip:
+      title: "Roll Rate-MAX Saturation Advisor"
+      normal: "Rate setpoint이 MAX 대비 여유 있음."
+      warning: "Rate setpoint이 MAX에 자주 도달 — mission profile 또는 attitude P 검토."
+      problem: "Rate setpoint이 MAX에 빈번하게 도달 — limit 상향 또는 attitude P 감소 검토."
+    priority_checks: ["MC_ROLLRATE_MAX 적절성", "attitude P 영향", "actuator saturation 동반"]
+    description: "Roll rate setpoint vs MC_ROLLRATE_MAX saturation"
+
+  - advisor_id: "advisor_pitch_rate_limit"
+    display_name: "Pitch Rate-MAX Saturation"
+    layer: "control"
+    priority: 1
+    issue_ids: ["rate_limit_saturation_pitch"]
+    axis: "pitch"
+    scope: "rate_limit"
+    target_airframes: ["MULTICOPTER", "VTOL"]
+    applicable_segments: ["all", "maneuver"]
+    required_topics: ["vehicle_rates_setpoint"]
+    severity:
+      warn: 5.0
+      problem: 15.0
+      rule: "saturation_ratio_percent against MC_PITCHRATE_MAX"
+    summary:
+      normal: "rate setpoint이 MAX 대비 여유 있음"
+      warning: "rate setpoint이 MAX에 자주 도달"
+      problem: "rate setpoint이 MAX에 빈번하게 도달"
+    tooltip:
+      title: "Pitch Rate-MAX Saturation Advisor"
+      normal: "Rate setpoint이 MAX 대비 여유 있음."
+      warning: "Rate setpoint이 MAX에 자주 도달 — mission/attitude P 검토."
+      problem: "Rate setpoint이 MAX에 빈번하게 도달 — limit 상향 또는 attitude P 감소 검토."
+    priority_checks: ["MC_PITCHRATE_MAX 적절성", "attitude P 영향", "actuator saturation 동반"]
+    description: "Pitch rate setpoint vs MC_PITCHRATE_MAX saturation"
+
+  - advisor_id: "advisor_yaw_rate_limit"
+    display_name: "Yaw Rate-MAX Saturation"
+    layer: "control"
+    priority: 1
+    issue_ids: ["rate_limit_saturation_yaw"]
+    axis: "yaw"
+    scope: "rate_limit"
+    target_airframes: ["MULTICOPTER", "VTOL"]
+    applicable_segments: ["all", "maneuver"]
+    required_topics: ["vehicle_rates_setpoint"]
+    severity:
+      warn: 5.0
+      problem: 15.0
+      rule: "saturation_ratio_percent against MC_YAWRATE_MAX"
+    summary:
+      normal: "yaw rate setpoint이 MAX 대비 여유 있음"
+      warning: "yaw rate setpoint이 MAX에 자주 도달"
+      problem: "yaw rate setpoint이 MAX에 빈번하게 도달"
+    tooltip:
+      title: "Yaw Rate-MAX Saturation Advisor"
+      normal: "Yaw rate setpoint이 MAX 대비 여유 있음."
+      warning: "Yaw rate setpoint이 MAX에 자주 도달 — heading mission/Y attitude P 검토."
+      problem: "Yaw rate setpoint이 MAX에 빈번하게 도달 — limit 상향 또는 yaw attitude P 감소 검토."
+    priority_checks: ["MC_YAWRATE_MAX 적절성", "yaw attitude P 영향"]
+    description: "Yaw rate setpoint vs MC_YAWRATE_MAX saturation"
+
+  # --- Depth expansion: position controller acceleration limits ---
+  - advisor_id: "advisor_acceleration_limit_saturation"
+    display_name: "Acceleration Limit Saturation"
+    layer: "actuation"
+    priority: 2
+    issue_ids: ["acceleration_limit_saturation"]
+    axis: "acceleration"
+    scope: "acc_limit"
+    target_airframes: ["MULTICOPTER", "VTOL"]
+    applicable_segments: ["all", "cruise", "maneuver"]
+    required_topics: ["vehicle_local_position_setpoint"]
+    severity:
+      warn: 5.0
+      problem: 15.0
+      rule: "worst axis saturation_ratio_percent across hor/up/down"
+    summary:
+      normal: "acceleration command가 limit 대비 여유 있음"
+      warning: "acceleration command가 limit에 자주 도달 — mission profile 또는 limit 검토"
+      problem: "acceleration command가 limit에 빈번하게 도달 — limit 상향 또는 mission profile 완화"
+    tooltip:
+      title: "Acceleration Limit Saturation Advisor"
+      normal: "Position controller acceleration command가 MPC_ACC_*_MAX 대비 여유 있음."
+      warning: "Position controller가 acceleration limit에 자주 도달 — 추력 여유와 mission profile 검토."
+      problem: "Position controller가 acceleration limit에 빈번하게 도달 — limit 상향 또는 profile 완화."
+    priority_checks: ["MPC_ACC_HOR_MAX 적절성", "MPC_ACC_UP_MAX 적절성", "MPC_ACC_DOWN_MAX 적절성"]
+    description: "Horizontal/vertical acceleration command saturation against MPC_ACC_*_MAX"
+
+  # --- Depth expansion: tilt limit ---
+  - advisor_id: "advisor_tilt_limit_saturation"
+    display_name: "Tilt Limit Saturation"
+    layer: "actuation"
+    priority: 2
+    issue_ids: ["tilt_limit_saturation"]
+    axis: "tilt"
+    scope: "tilt_limit"
+    target_airframes: ["MULTICOPTER", "VTOL"]
+    applicable_segments: ["all", "maneuver"]
+    required_topics: ["vehicle_attitude_setpoint"]
+    severity:
+      warn: 5.0
+      problem: 15.0
+      rule: "saturation_ratio_percent of setpoint tilt against MPC_TILTMAX_AIR"
+    summary:
+      normal: "setpoint tilt이 limit 대비 여유 있음"
+      warning: "setpoint tilt이 MPC_TILTMAX_AIR에 자주 도달"
+      problem: "setpoint tilt이 MPC_TILTMAX_AIR에 빈번하게 도달"
+    tooltip:
+      title: "Tilt Limit Saturation Advisor"
+      normal: "Setpoint tilt이 MPC_TILTMAX_AIR 대비 여유 있음."
+      warning: "Setpoint tilt이 limit에 자주 도달 — mission profile 또는 limit 검토."
+      problem: "Setpoint tilt이 limit에 빈번하게 도달 — 추력 여유와 limit 상향 검토."
+    priority_checks: ["MPC_TILTMAX_AIR 적절성", "추력 여유", "mission profile 완화 가능성"]
+    description: "Setpoint tilt vs MPC_TILTMAX_AIR saturation"
+
+  - advisor_id: "advisor_vtol_transition_tuning"
+    display_name: "VTOL Transition"
+    layer: "vehicle_specific"
+    priority: 0
+    issue_ids: ["vtol_transition_tuning"]
+    axis: "transition"
+    scope: "transition"
+    target_airframes: ["VTOL"]
+    applicable_segments: ["transition"]
+    required_topics:
+      - "vehicle_status.in_transition_mode"
+      - "vehicle_local_position.z"
+    core_metrics:
+      - key: "transition_duration_s"
+        expression: "vtol_transition_tuning.metric_value.transition_duration_s"
+        unit: "s"
+        direction: "higher_is_worse"
+      - key: "transition_altitude_loss_m"
+        expression: "vtol_transition_tuning.metric_value.transition_altitude_loss_m"
+        unit: "m"
+        direction: "higher_is_worse"
+    severity:
+      warn: 0.0
+      problem: 0.0
+      rule: "legacy issue severity from transition inference"
+    summary:
+      normal: "transition throttle schedule, mode transition logic, estimator/sensor check"
+      warning: "transition throttle schedule, mode transition logic, estimator/sensor check"
+      problem: "transition throttle schedule, mode transition logic, estimator/sensor check"
+    tooltip:
+      title: "VTOL Transition Advisor"
+      normal: "VTOL transition tuning assessment."
+      warning: "VTOL transition tuning assessment."
+      problem: "VTOL transition tuning assessment."
+    priority_checks:
+      - "transition throttle schedule"
+      - "mode transition logic"
+      - "estimator/sensor check"
+    description: "VTOL transition tuning assessment"
+
+  - advisor_id: "advisor_controller_saturation"
+    display_name: "Controller Saturation"
+    layer: "actuation"
+    priority: 1
+    target_airframes: ["MULTICOPTER", "FIXED_WING", "VTOL", "HELICOPTER"]
+    applicable_segments: ["all", "hover", "climb", "cruise", "maneuver", "transition"]
+    source_metrics:
+      - "controller_saturation"
+    required_topics:
+      - "actuator_outputs|actuator_motors|actuator_controls"
+    optional_topics:
+      - "vehicle_rates_setpoint"
+      - "vehicle_angular_velocity"
+    core_metrics:
+      - key: "saturation_ratio_percent"
+        expression: "controller_saturation.value"
+        unit: "%"
+        direction: "higher_is_worse"
+    severity:
+      warn: 8.0
+      problem: 20.0
+      rule: "value >= problem -> problem; value >= warn -> warning; else normal"
+    summary:
+      normal: "actuator saturation not dominant"
+      warning: "actuator saturation detected; authority margin review"
+      problem: "long/strong saturation; authority or allocation limit likely"
+    tooltip:
+      title: "Controller Saturation Advisor"
+      normal: "No prolonged saturation plateau observed."
+      warning: "Saturation appears in meaningful portions; check control margin and allocation."
+      problem: "Saturation dominates loop behavior; tune after authority/mixer/thrust margin verification."
+
+  - advisor_id: "advisor_vibration_impact"
+    display_name: "Vibration Impact"
+    layer: "actuation"
+    priority: 2
+    target_airframes: ["MULTICOPTER", "FIXED_WING", "VTOL", "HELICOPTER"]
+    applicable_segments: ["all", "hover", "climb", "cruise", "maneuver", "transition"]
+    source_metrics:
+      - "vibration"
+      - "rotor_harmonic_vibration"
+    required_topics:
+      - "sensor_combined|vehicle_acceleration|vehicle_imu"
+    optional_topics:
+      - "estimator_status|ekf2_innovations"
+      - "vehicle_angular_velocity"
+    core_metrics:
+      - key: "vibration_rms"
+        expression: "vibration.value"
+        unit: "m/s^2 RMS"
+        direction: "higher_is_worse"
+      - key: "harmonic_peak_db"
+        expression: "rotor_harmonic_vibration.value"
+        unit: "dB"
+        direction: "higher_is_worse"
+    severity:
+      warn: 3.0
+      problem: 6.0
+      rule: "vibration_rms primary; harmonic_peak_db can raise severity by one level"
+    summary:
+      normal: "vibration impact within baseline"
+      warning: "vibration may degrade damping/noise margin"
+      problem: "vibration likely dominates control quality"
+    tooltip:
+      title: "Vibration Impact Advisor"
+      normal: "No dominant vibration impact detected."
+      warning: "Check notch/LPF and structural isolation before aggressive gain changes."
+      problem: "Prioritize mechanical mitigation and filter retuning; PID-only adjustment is high-risk."
+
+  - advisor_id: "advisor_estimator_health_impact"
+    display_name: "Estimator Health Impact"
+    layer: "estimation"
+    priority: 3
+    target_airframes: ["MULTICOPTER", "FIXED_WING", "VTOL", "HELICOPTER"]
+    applicable_segments: ["all", "hover", "climb", "cruise", "maneuver", "transition"]
+    source_metrics:
+      - "innovation_fail_ratio"
+      - "gps_quality"
+    required_topics:
+      - "estimator_status|ekf2_innovations"
+    optional_topics:
+      - "sensor_gps"
+      - "vehicle_global_position"
+    core_metrics:
+      - key: "innovation_fail_ratio_percent"
+        expression: "innovation_fail_ratio.value"
+        unit: "%"
+        direction: "higher_is_worse"
+    severity:
+      warn: 3.0
+      problem: 10.0
+      rule: "innovation fail ratio threshold"
+    summary:
+      normal: "estimator impact not dominant"
+      warning: "estimator quality may affect tracking confidence"
+      problem: "estimator instability likely contributes to control error"
+    tooltip:
+      title: "Estimator Health Impact Advisor"
+      normal: "Innovation behavior is within acceptable range."
+      warning: "Review sensor consistency and innovation gate/noise parameters."
+      problem: "Estimator-first troubleshooting recommended before loop retuning."
+
+  - advisor_id: "advisor_tecs_altitude_response"
+    display_name: "TECS Altitude Response"
+    layer: "energy"
+    priority: 4
+    issue_ids: ["tecs_altitude_response"]
+    target_airframes: ["FIXED_WING", "VTOL"]
+    applicable_segments: ["cruise", "climb", "descent", "forward_flight"]
+    source_metrics:
+      - "tecs_altitude_tracking_error"
+    required_topics:
+      - "vehicle_local_position_setpoint.z"
+      - "vehicle_local_position.z"
+    optional_topics:
+      - "tecs_status"
+      - "vehicle_status"
+    core_metrics:
+      - key: "altitude_mae_m"
+        expression: "tecs_altitude_tracking_error.value"
+        unit: "m"
+        direction: "higher_is_worse"
+    severity:
+      warn: 4.0
+      problem: 10.0
+      rule: "TECS altitude MAE threshold"
+    summary:
+      normal: "TECS altitude response within target"
+      warning: "TECS altitude response drift/lag observed"
+      problem: "TECS altitude response poor; energy split retuning needed"
+    tooltip:
+      title: "TECS Altitude Response Advisor"
+      normal: "Altitude tracking appears stable in forward-flight segments."
+      warning: "Check TECS height loop and pitch/throttle split behavior."
+      problem: "Retune TECS with conservative baseline; validate altitude source consistency first."
+
+  - advisor_id: "advisor_tecs_airspeed_response"
+    display_name: "TECS Airspeed Response"
+    layer: "energy"
+    priority: 5
+    issue_ids: ["tecs_airspeed_response"]
+    target_airframes: ["FIXED_WING", "VTOL"]
+    applicable_segments: ["cruise", "climb", "descent", "forward_flight"]
+    source_metrics:
+      - "tecs_airspeed_tracking_error"
+      - "airspeed_consistency"
+    required_topics:
+      - "tecs_status.true_airspeed_sp"
+      - "tecs_status.true_airspeed_filtered|airspeed.true_airspeed_m_s"
+    optional_topics:
+      - "vehicle_local_position.vx"
+      - "vehicle_local_position.vy"
+    core_metrics:
+      - key: "airspeed_mae_mps"
+        expression: "tecs_airspeed_tracking_error.value"
+        unit: "m/s"
+        direction: "higher_is_worse"
+      - key: "airspeed_residual_rms_mps"
+        expression: "airspeed_consistency.value"
+        unit: "m/s"
+        direction: "higher_is_worse"
+    severity:
+      warn: 2.0
+      problem: 5.0
+      rule: "airspeed MAE primary; residual RMS can raise severity by one level"
+    summary:
+      normal: "TECS airspeed response within target"
+      warning: "airspeed response mismatch; calibration/wind consistency check"
+      problem: "TECS speed loop likely unstable or poorly matched"
+    tooltip:
+      title: "TECS Airspeed Response Advisor"
+      normal: "Airspeed tracking is generally stable."
+      warning: "Inspect pitot calibration, wind estimation, and TECS speed loop gains."
+      problem: "Apply TECS speed-loop retune workflow and verify sensor integrity first."
+
+  - advisor_id: "advisor_transition_altitude_loss"
+    display_name: "Transition Altitude Loss"
+    layer: "vehicle_specific"
+    priority: 6
+    target_airframes: ["VTOL"]
+    applicable_segments: ["transition"]
+    source_metrics:
+      - "transition_altitude_loss"
+      - "transition_duration"
+      - "innovation_fail_ratio"
+    required_topics:
+      - "vehicle_status.in_transition_mode"
+      - "vehicle_local_position.z"
+    optional_topics:
+      - "vehicle_attitude"
+      - "actuator_outputs"
+      - "estimator_status"
+    core_metrics:
+      - key: "transition_altitude_loss_m"
+        expression: "transition_altitude_loss.value"
+        unit: "m"
+        direction: "higher_is_worse"
+      - key: "transition_duration_s"
+        expression: "transition_duration.value"
+        unit: "s"
+        direction: "higher_is_worse"
+    severity:
+      warn: 8.0
+      problem: 20.0
+      rule: "altitude loss threshold; long transition duration can escalate severity"
+    summary:
+      normal: "transition altitude dip controlled"
+      warning: "transition altitude loss noticeable; schedule review needed"
+      problem: "hazardous transition altitude loss risk"
+    tooltip:
+      title: "VTOL Transition Altitude-Loss Advisor"
+      normal: "Transition altitude variation is acceptable."
+      warning: "Review transition throttle schedule and mode trigger logic."
+      problem: "Rework transition envelope (pitch/thrust) before further aggressive flight."
+
+  - advisor_id: "advisor_forward_flight_response"
+    display_name: "Forward Flight Response"
+    layer: "control"
+    priority: 7
+    target_airframes: ["FIXED_WING", "VTOL"]
+    applicable_segments: ["forward_flight", "cruise", "maneuver"]
+    source_metrics:
+      - "angular_tracking_error"
+      - "attitude_tracking_error"
+      - "controller_saturation"
+      - "airspeed_consistency"
+    required_topics:
+      - "vehicle_rates_setpoint"
+      - "vehicle_angular_velocity"
+      - "vehicle_attitude_setpoint"
+      - "vehicle_attitude"
+    optional_topics:
+      - "tecs_status"
+      - "vehicle_local_position"
+      - "actuator_outputs"
+    core_metrics:
+      - key: "rate_tracking_mae"
+        expression: "angular_tracking_error.value"
+        unit: "rad/s MAE"
+        direction: "higher_is_worse"
+      - key: "attitude_tracking_mae"
+        expression: "attitude_tracking_error.value"
+        unit: "rad MAE"
+        direction: "higher_is_worse"
+      - key: "saturation_ratio_percent"
+        expression: "controller_saturation.value"
+        unit: "%"
+        direction: "higher_is_worse"
+    severity:
+      warn: 0.0
+      problem: 0.0
+      rule: >
+        Composite advisor. Start from tracking severities;
+        raise by one level if saturation is warning/problem or
+        airspeed_consistency is warning/problem.
+    summary:
+      normal: "forward-flight control response stable"
+      warning: "forward-flight response degradation detected"
+      problem: "forward-flight response unstable or authority-limited"
+    tooltip:
+      title: "Forward Flight Response Advisor"
+      normal: "Tracking and control effort are within expected envelope."
+      warning: "Check rate/attitude loop interaction with airspeed and actuator margin."
+      problem: "Prioritize authority, speed-energy consistency, and loop stability checks before gain increase."

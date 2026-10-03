@@ -1,0 +1,53 @@
+schema_version: "1.0"
+catalog_name: "Log ansys Auto-Evaluation Metrics Catalog"
+
+metrics:
+  - metric_id: "rate_loop_roll"
+    display_name: "Roll Rate Loop Response"
+    airframe: ["MULTICOPTER", "VTOL"]
+    applicable_segments: ["step_like", "hover", "climb", "maneuver"]
+    required_topics:
+      - "vehicle_rates_setpoint.roll"
+      - "vehicle_angular_velocity.xyz[0]"
+    optional_topics:
+      - "actuator_outputs.*"
+      - "sensor_combined.*"
+      - "estimator_status.*"
+    formula:
+      - "overshoot"
+      - "rise_time"
+      - "settling_time"
+      - "steady_state_error"
+      - "oscillation_index"
+      - "dominant_frequency"
+      - "saturation_ratio"
+      - "vibration_severity"
+      - "control_effort_variation"
+    unit: "mixed"
+    missing_data_policy: "degrade_confidence"
+    confidence_rule: "maneuver_count + confounder penalties"
+
+  - metric_id: "rate_loop_pitch"
+    display_name: "Pitch Rate Loop Response"
+    airframe: ["MULTICOPTER", "VTOL"]
+    applicable_segments: ["step_like", "hover", "climb", "maneuver"]
+    required_topics:
+      - "vehicle_rates_setpoint.pitch"
+      - "vehicle_angular_velocity.xyz[1]"
+    optional_topics:
+      - "actuator_outputs.*"
+      - "sensor_combined.*"
+      - "estimator_status.*"
+    formula:
+      - "overshoot"
+      - "rise_time"
+      - "settling_time"
+      - "steady_state_error"
+      - "oscillation_index"
+      - "dominant_frequency"
+      - "saturation_ratio"
+      - "vibration_severity"
+      - "control_effort_variation"
+    unit: "mixed"
+    missing_data_policy: "degrade_confidence"
+    confidence_rule: "maneuver_count + confounder penalties"

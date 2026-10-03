@@ -1,0 +1,426 @@
+﻿overall:
+  good_score_min: 80.0
+  warning_score_min: 60.0
+  threshold_set_version: "v1.2"
+  threshold_set_date: "2026-03-08"
+
+segments:
+  hover:
+    min_samples: 80
+    hspd_max: 2.0
+    vz_max: 0.5
+
+weights:
+  vibration: 1.0
+  attitude_tracking_error: 1.0
+  angular_tracking_error: 1.0
+  innovation_fail_ratio: 1.0
+  controller_saturation: 1.0
+  gps_quality: 0.8
+  failsafe_mode_anomaly_count: 1.0
+  failsafe_event_count: 0.6
+  mission_stability: 0.4
+  altitude_tracking_error: 0.6
+  hover_altitude_hold_error: 1.0
+  tecs_altitude_tracking_error: 1.0
+  tecs_airspeed_tracking_error: 1.0
+  tecs_energy_balance_error: 0.9
+  airspeed_consistency: 0.9
+  navigation_path_tracking_error: 0.5
+  navigation_path_tracking_reliability: 0.3
+  throttle_pitch_coupling: 0.8
+  rpm_stability: 0.8
+  rotor_harmonic_vibration: 0.8
+  control_coupling_index: 0.8
+  transition_duration: 1.0
+  transition_altitude_loss: 1.0
+
+weights_airframe:
+  MULTICOPTER:
+    hover_altitude_hold_error: 1.2
+    controller_saturation: 1.1
+    vibration: 1.0
+    control_coupling_index: 0.9
+  FIXED_WING:
+    tecs_altitude_tracking_error: 1.1
+    tecs_airspeed_tracking_error: 1.1
+    tecs_energy_balance_error: 1.0
+    airspeed_consistency: 1.1
+    throttle_pitch_coupling: 1.0
+    control_coupling_index: 0.7
+  VTOL:
+    transition_duration: 1.3
+    transition_altitude_loss: 1.3
+    tecs_energy_balance_error: 1.0
+    tecs_airspeed_tracking_error: 1.0
+    rpm_stability: 1.0
+    rotor_harmonic_vibration: 1.0
+  HELICOPTER:
+    rpm_stability: 1.3
+    rotor_harmonic_vibration: 1.2
+    control_coupling_index: 1.0
+    hover_altitude_hold_error: 1.0
+
+metrics_airframe:
+  MULTICOPTER:
+    attitude_tracking_error:
+      warn: 4.0
+      problem: 9.0
+    angular_tracking_error:
+      warn: 0.14
+      problem: 0.32
+    innovation_fail_ratio:
+      warn: 2.0
+      problem: 6.0
+    controller_saturation:
+      warn: 6.0
+      problem: 15.0
+    hover_altitude_hold_error:
+      warn: 1.0
+      problem: 2.5
+    rotor_harmonic_vibration:
+      warn: 14.0
+      problem: 24.0
+    control_coupling_index:
+      warn: 30.0
+      problem: 50.0
+
+  FIXED_WING:
+    attitude_tracking_error:
+      warn: 6.0
+      problem: 12.0
+    angular_tracking_error:
+      warn: 0.20
+      problem: 0.50
+    innovation_fail_ratio:
+      warn: 3.0
+      problem: 9.0
+    controller_saturation:
+      warn: 10.0
+      problem: 25.0
+    altitude_tracking_error:
+      warn: 4.0
+      problem: 10.0
+    tecs_altitude_tracking_error:
+      warn: 8.0
+      problem: 30.0
+    tecs_airspeed_tracking_error:
+      warn: 1.8
+      problem: 4.5
+    tecs_energy_balance_error:
+      warn: 25.0
+      problem: 80.0
+    airspeed_consistency:
+      warn: 2.5
+      problem: 5.5
+    throttle_pitch_coupling:
+      warn: 55.0
+      problem: 75.0
+    control_coupling_index:
+      warn: 30.0
+      problem: 50.0
+
+  VTOL:
+    attitude_tracking_error:
+      warn: 5.0
+      problem: 11.0
+    angular_tracking_error:
+      warn: 0.18
+      problem: 0.42
+    innovation_fail_ratio:
+      warn: 4.0
+      problem: 12.0
+    controller_saturation:
+      warn: 8.0
+      problem: 20.0
+    hover_altitude_hold_error:
+      warn: 1.5
+      problem: 4.0
+    tecs_altitude_tracking_error:
+      warn: 12.0
+      problem: 40.0
+    tecs_airspeed_tracking_error:
+      warn: 2.2
+      problem: 5.5
+    tecs_energy_balance_error:
+      warn: 30.0
+      problem: 120.0
+    airspeed_consistency:
+      warn: 3.5
+      problem: 6.5
+    throttle_pitch_coupling:
+      warn: 60.0
+      problem: 80.0
+    rpm_stability:
+      warn: 4.5
+      problem: 10.0
+    rotor_harmonic_vibration:
+      warn: 12.0
+      problem: 22.0
+    transition_duration:
+      warn: 16.0
+      problem: 24.0
+    transition_altitude_loss:
+      warn: 8.0
+      problem: 18.0
+    control_coupling_index:
+      warn: 35.0
+      problem: 60.0
+
+  HELICOPTER:
+    attitude_tracking_error:
+      warn: 5.5
+      problem: 12.5
+    angular_tracking_error:
+      warn: 0.20
+      problem: 0.48
+    innovation_fail_ratio:
+      warn: 3.0
+      problem: 9.0
+    controller_saturation:
+      warn: 8.0
+      problem: 22.0
+    hover_altitude_hold_error:
+      warn: 1.2
+      problem: 3.0
+    rpm_stability:
+      warn: 3.5
+      problem: 8.0
+    rotor_harmonic_vibration:
+      warn: 10.0
+      problem: 18.0
+    control_coupling_index:
+      warn: 30.0
+      problem: 55.0
+
+metrics:
+  vibration:
+    warn: 3.0
+    problem: 6.0
+    unit: "m/s^2 RMS"
+    suggestion: "Check propeller balance and IMU isolation."
+
+  attitude_tracking_error:
+    warn: 5.0
+    problem: 12.0
+    unit: "deg MAE"
+    suggestion: "Retune attitude loop gains."
+
+  angular_tracking_error:
+    warn: 0.18
+    problem: 0.45
+    unit: "rad/s MAE"
+    suggestion: "Retune rate loop gains."
+
+  innovation_fail_ratio:
+    warn: 3.0
+    problem: 10.0
+    unit: "% duration"
+    suggestion: "Check estimator tuning and sensor quality."
+
+  controller_saturation:
+    warn: 8.0
+    problem: 20.0
+    unit: "% duration"
+    suggestion: "Review control margin and allocation."
+
+  gps_quality:
+    warn_score_min: 80.0
+    problem_score_min: 60.0
+    suggestion: "Check GNSS visibility and multipath."
+
+  failsafe_mode_anomaly_count:
+    warn: 1.0
+    problem: 3.0
+    unit: "event index"
+    suggestion: "Review mode transitions and failsafe settings."
+
+  failsafe_event_count:
+    warn: 1.0
+    problem: 3.0
+    unit: "회"
+    suggestion: "Review failsafe trigger source and safety action configuration."
+
+  mission_stability:
+    warn_score_min: 80.0
+    problem_score_min: 60.0
+    unit: "score"
+    suggestion: "Review unexpected mode divergence and mission-phase mode switching stability."
+
+  altitude_tracking_error:
+    warn: 3.0
+    problem: 8.0
+    unit: "m MAE"
+    suggestion: "Review vertical control tuning."
+
+  hover_altitude_hold_error:
+    warn: 1.5
+    problem: 4.0
+    unit: "m MAE"
+    suggestion: "Tune hover altitude controller."
+
+  tecs_altitude_tracking_error:
+    warn: 4.0
+    problem: 10.0
+    unit: "m MAE"
+    suggestion: "Tune TECS height loop and energy balance."
+
+  tecs_airspeed_tracking_error:
+    warn: 2.0
+    problem: 5.0
+    unit: "m/s MAE"
+    suggestion: "Tune TECS speed loop and airspeed calibration."
+
+  tecs_energy_balance_error:
+    warn: 10.0
+    problem: 25.0
+    unit: "m eq MAE"
+    suggestion: "Tune TECS total energy balance (pitch/throttle split)."
+
+  airspeed_consistency:
+    warn: 2.5
+    problem: 6.0
+    unit: "m/s residual RMS"
+    suggestion: "Check pitot calibration and wind estimation consistency."
+
+  navigation_path_tracking_error:
+    warn: 10.0
+    problem: 25.0
+    unit: "m MAE"
+    suggestion: "Review NPFG/path tuning together with roll tracking."
+
+  navigation_path_tracking_reliability:
+    warn_score_min: 80.0
+    problem_score_min: 60.0
+    unit: "score"
+    suggestion: "Review NAV_ACC_RAD and local-position validity together with path-tail error."
+    warn_p95_ratio: 0.8
+    problem_p95_ratio: 1.2
+    xy_valid_warn: 98.0
+    xy_valid_problem: 95.0
+
+  throttle_pitch_coupling:
+    warn: 60.0
+    problem: 80.0
+    unit: "corr %"
+    suggestion: "Review TECS and pitch/throttle loop decoupling."
+
+  rpm_stability:
+    warn: 5.0
+    problem: 12.0
+    unit: "% CV"
+    suggestion: "Inspect rotor governor/RPM control stability."
+
+  rotor_harmonic_vibration:
+    warn: 12.0
+    problem: 22.0
+    unit: "dB peak/median"
+    suggestion: "Inspect rotor harmonics and structural resonance."
+
+  control_coupling_index:
+    warn: 35.0
+    problem: 60.0
+    unit: "corr %"
+    suggestion: "Check cross-axis coupling and control mixing."
+
+  transition_duration:
+    warn: 12.0
+    problem: 25.0
+    unit: "s"
+    suggestion: "Tune transition airspeed/thrust schedule."
+
+  transition_altitude_loss:
+    warn: 8.0
+    problem: 20.0
+    unit: "m"
+    suggestion: "Reduce transition altitude dip with pitch/thrust tuning."
+
+tuning_guidance:
+  hover_altitude_hold_error:
+    warning:
+      likely_causes:
+        - "Vertical loop gain 부족 또는 hover thrust 추정 오차"
+        - "Baro/GNSS 고도 입력 노이즈"
+      priority_checks:
+        - "rate tracking error"
+        - "actuator output saturation"
+        - "innovation spike"
+      tuning_actions:
+        - "고도 루프 gain을 소폭 재조정하고 hover thrust 추정을 재확인"
+        - "고도 센서 필터/퓨전 설정 점검"
+      verification_checklist:
+        - "동일 조건 hover 구간 MAE 감소 여부 확인"
+        - "재튜닝 후 과도진동/overshoot 증가 여부 확인"
+    problem:
+      likely_causes:
+        - "고도 루프 안정도 저하 또는 actuator 한계"
+        - "고도 참조 데이터 불일치"
+      priority_checks:
+        - "rate tracking error"
+        - "actuator output saturation"
+        - "sensor offset"
+      tuning_actions:
+        - "안정 baseline 파라미터로 복귀 후 단계적 재튜닝"
+        - "센서 캘리브레이션 및 z/z_sp 토픽 정합성 검증"
+      verification_checklist:
+        - "장시간 hover에서 drift/발산 없음"
+        - "상승/하강 명령 추종 안정성 확보"
+
+  tecs_energy_balance_error:
+    warning:
+      likely_causes:
+        - "TECS pitch/throttle 분배 불균형"
+        - "airspeed/altitude 입력 지연"
+      priority_checks:
+        - "TECS response"
+        - "airspeed consistency"
+        - "innovation spike"
+      tuning_actions:
+        - "TECS 에너지 분배 파라미터 재조정"
+        - "airspeed/altitude 센서 지연 및 필터 설정 점검"
+      verification_checklist:
+        - "cruise 구간 energy-height MAE 감소 확인"
+        - "속도/고도 추종이 동시에 악화되지 않는지 확인"
+    problem:
+      likely_causes:
+        - "TECS 모델-기체 동역학 불일치"
+        - "속도/고도 신호 신뢰도 저하"
+      priority_checks:
+        - "TECS response"
+        - "airspeed consistency"
+        - "actuator output saturation"
+      tuning_actions:
+        - "TECS 파라미터를 보수적으로 재설정 후 재시작"
+        - "pitot/고도 센서 이상 여부 선행 점검"
+      verification_checklist:
+        - "명령 변화 시 에너지 발산/붕괴 없음"
+        - "고속/저속 구간 모두 안정 추종"
+
+  transition_altitude_loss:
+    warning:
+      likely_causes:
+        - "전환 구간 thrust support 부족"
+        - "transition pitch profile 부적합"
+      priority_checks:
+        - "mode transition logic impact"
+        - "TECS response"
+        - "airspeed consistency"
+      tuning_actions:
+        - "전환 thrust margin 상향"
+        - "전환 pitch/airspeed 스케줄 완화"
+      verification_checklist:
+        - "전환 중 altitude dip 감소"
+        - "전환 완료 시간 증가가 과도하지 않은지 확인"
+    problem:
+      likely_causes:
+        - "전환 제어 로직 상 에너지 급손실"
+      priority_checks:
+        - "mode transition logic impact"
+        - "actuator output saturation"
+        - "rate tracking error"
+      tuning_actions:
+        - "전환 조건/게인을 전면 재점검"
+        - "낮은 에너지 상태에서 전환 제한"
+      verification_checklist:
+        - "최악 조건에서도 안전 고도 여유 확보"
+        - "반복 전환 시 일관된 안정성 확보"

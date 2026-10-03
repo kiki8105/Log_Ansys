@@ -1,0 +1,6 @@
+# ROS 설치 없이 ROS1 bag 및 ROS2 SQLite3/MCAP을 읽는 순수 Python reader.
+rosbags==0.11.5
+
+# ArduPilot DataFlash(.bin/.log) 및 MAVLink telemetry(.tlog) reader.
+# 배포 EXE에 포함할 때 pymavlink/DFReader의 라이선스 의무를 릴리스 단계에서 확인합니다.
+pymavlink==2.4.50

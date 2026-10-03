@@ -1,0 +1,654 @@
+﻿overall:
+  good_score_min: 80.0
+  warning_score_min: 60.0
+  threshold_set_version: "v1.2"
+  threshold_set_date: "2026-03-08"
+
+segments:
+  hover:
+    min_samples: 80
+    hspd_max: 2.0
+    vz_max: 0.5
+
+weights:
+  vibration: 1.0
+  attitude_tracking_error: 1.0
+  angular_tracking_error: 1.0
+  innovation_fail_ratio: 1.0
+  controller_saturation: 1.0
+  gps_quality: 0.8
+  communication_quality: 0.8
+  failsafe_mode_anomaly_count: 1.0
+  failsafe_event_count: 0.6
+  mission_stability: 0.4
+  altitude_tracking_error: 0.6
+  hover_altitude_hold_error: 1.0
+  tecs_altitude_tracking_error: 1.0
+  tecs_airspeed_tracking_error: 1.0
+  tecs_energy_balance_error: 0.9
+  airspeed_consistency: 0.9
+  airspeed_scale_appropriateness: 0.8
+  navigation_path_tracking_error: 0.5
+  navigation_path_tracking_reliability: 0.3
+  throttle_pitch_coupling: 0.8
+  rpm_stability: 0.8
+  rotor_harmonic_vibration: 0.8
+  control_coupling_index: 0.8
+  transition_duration: 1.0
+  transition_altitude_loss: 1.0
+
+weights_airframe:
+  MULTICOPTER:
+    hover_altitude_hold_error: 1.2
+    controller_saturation: 1.1
+    vibration: 1.0
+    control_coupling_index: 0.9
+  FIXED_WING:
+    tecs_altitude_tracking_error: 1.1
+    tecs_airspeed_tracking_error: 1.1
+    tecs_energy_balance_error: 1.0
+    airspeed_consistency: 1.1
+    airspeed_scale_appropriateness: 0.9
+    navigation_path_tracking_error: 0.9
+    throttle_pitch_coupling: 1.0
+    control_coupling_index: 0.7
+  VTOL:
+    transition_duration: 1.3
+    transition_altitude_loss: 1.3
+    tecs_energy_balance_error: 1.0
+    tecs_airspeed_tracking_error: 1.0
+    rpm_stability: 1.0
+    rotor_harmonic_vibration: 1.0
+  HELICOPTER:
+    rpm_stability: 1.3
+    rotor_harmonic_vibration: 1.2
+    control_coupling_index: 1.0
+    hover_altitude_hold_error: 1.0
+
+metrics_airframe:
+  MULTICOPTER:
+    attitude_tracking_error:
+      warn: 4.0
+      problem: 9.0
+    angular_tracking_error:
+      warn: 0.14
+      problem: 0.32
+    innovation_fail_ratio:
+      warn: 2.0
+      problem: 6.0
+    controller_saturation:
+      warn: 6.0
+      problem: 15.0
+    hover_altitude_hold_error:
+      warn: 1.0
+      problem: 2.5
+    rotor_harmonic_vibration:
+      warn: 14.0
+      problem: 24.0
+    control_coupling_index:
+      warn: 30.0
+      problem: 50.0
+
+  FIXED_WING:
+    attitude_tracking_error:
+      warn: 6.0
+      problem: 12.0
+    angular_tracking_error:
+      warn: 0.20
+      problem: 0.50
+    innovation_fail_ratio:
+      warn: 3.0
+      problem: 9.0
+    controller_saturation:
+      warn: 10.0
+      problem: 25.0
+    altitude_tracking_error:
+      warn: 4.0
+      problem: 10.0
+    tecs_altitude_tracking_error:
+      warn: 8.0
+      problem: 30.0
+    tecs_airspeed_tracking_error:
+      warn: 1.8
+      problem: 4.5
+    tecs_energy_balance_error:
+      warn: 25.0
+      problem: 80.0
+    airspeed_consistency:
+      warn: 2.5
+      problem: 5.5
+    airspeed_scale_appropriateness:
+      warn: 0.5
+      problem: 2.0
+    navigation_path_tracking_error:
+      warn: 15.0
+      problem: 40.0
+    throttle_pitch_coupling:
+      warn: 55.0
+      problem: 75.0
+    control_coupling_index:
+      warn: 30.0
+      problem: 50.0
+
+  VTOL:
+    attitude_tracking_error:
+      warn: 5.0
+      problem: 11.0
+    angular_tracking_error:
+      warn: 0.18
+      problem: 0.42
+    innovation_fail_ratio:
+      warn: 4.0
+      problem: 12.0
+    controller_saturation:
+      warn: 8.0
+      problem: 20.0
+    hover_altitude_hold_error:
+      warn: 1.5
+      problem: 4.0
+    tecs_altitude_tracking_error:
+      warn: 12.0
+      problem: 40.0
+    tecs_airspeed_tracking_error:
+      warn: 2.2
+      problem: 5.5
+    tecs_energy_balance_error:
+      warn: 30.0
+      problem: 120.0
+    airspeed_consistency:
+      warn: 3.5
+      problem: 6.5
+    airspeed_scale_appropriateness:
+      warn: 0.5
+      problem: 2.0
+    navigation_path_tracking_error:
+      warn: 10.0
+      problem: 25.0
+    throttle_pitch_coupling:
+      warn: 60.0
+      problem: 80.0
+    rpm_stability:
+      warn: 4.5
+      problem: 10.0
+    rotor_harmonic_vibration:
+      warn: 12.0
+      problem: 22.0
+    transition_duration:
+      warn: 16.0
+      problem: 24.0
+    transition_altitude_loss:
+      warn: 8.0
+      problem: 18.0
+    control_coupling_index:
+      warn: 35.0
+      problem: 60.0
+
+  HELICOPTER:
+    attitude_tracking_error:
+      warn: 5.5
+      problem: 12.5
+    angular_tracking_error:
+      warn: 0.20
+      problem: 0.48
+    innovation_fail_ratio:
+      warn: 3.0
+      problem: 9.0
+    controller_saturation:
+      warn: 8.0
+      problem: 22.0
+    hover_altitude_hold_error:
+      warn: 1.2
+      problem: 3.0
+    rpm_stability:
+      warn: 3.5
+      problem: 8.0
+    rotor_harmonic_vibration:
+      warn: 10.0
+      problem: 18.0
+    control_coupling_index:
+      warn: 30.0
+      problem: 55.0
+
+metrics:
+  vibration:
+    warn: 3.0
+    problem: 6.0
+    unit: "m/s^2 RMS"
+    suggestion: "Check propeller balance and IMU isolation."
+
+  attitude_tracking_error:
+    warn: 5.0
+    problem: 12.0
+    unit: "deg MAE"
+    suggestion: "Retune attitude loop gains."
+    applicable_modes: ["AltCtl", "PosCtl", "Mission", "Loiter", "RTL", "PositionSlow", "AltitudeCruise", "Descend", "Offboard", "Takeoff", "Land", "FollowTarget", "PrecisionLand", "Orbit", "VTOLTakeoff"]
+    excluded_modes: ["Manual", "Stabilized", "Acro"]
+    mode_gate: "nav_state_applicable_modes"
+
+  angular_tracking_error:
+    warn: 0.18
+    problem: 0.45
+    unit: "rad/s MAE"
+    suggestion: "Retune rate loop gains."
+    applicable_modes: ["AltCtl", "PosCtl", "Mission", "Loiter", "RTL", "PositionSlow", "AltitudeCruise", "Descend", "Offboard", "Takeoff", "Land", "FollowTarget", "PrecisionLand", "Orbit", "VTOLTakeoff"]
+    excluded_modes: ["Manual", "Stabilized", "Acro"]
+    mode_gate: "nav_state_applicable_modes"
+
+  innovation_fail_ratio:
+    warn: 3.0
+    problem: 10.0
+    unit: "% duration"
+    suggestion: "Check estimator tuning and sensor quality."
+
+  controller_saturation:
+    warn: 8.0
+    problem: 20.0
+    unit: "% duration"
+    suggestion: "Review control margin and allocation."
+    reference_class: "px4_explicit"
+    signal_semantics: "px4_explicit"
+    threshold_source: "PX4 actuator_motors documented normalized [0,1] command range"
+    threshold_rationale: "Score only time at the physical upper command limit while armed and airborne; do not infer PWM limits from observed percentiles."
+    mode_gate: "armed_and_airborne"
+    normalization_basis: "time-weighted fraction of actuator_motors.control[] >= 0.98"
+
+  gps_quality:
+    warn_score_min: 80.0
+    problem_score_min: 60.0
+    suggestion: "Check GNSS visibility and multipath."
+    reference_class: "px4_explicit"
+    signal_semantics: "px4_explicit"
+    threshold_source: "PX4 GPS checks + product accuracy targets"
+    threshold_rationale: "Combine GPS fix/satellite quality with estimator gps_check_fail_flags and position accuracy."
+    mode_gate: "all_logged_samples"
+    normalization_basis: "score from fix/sat + EKF GPS fail ratio + position accuracy"
+    required_topics:
+      - "vehicle_gps_position|sensor_gps"
+      - "estimator_status"
+    fallback_policy: "Allow GPS-only or estimator-only scoring with reduced confidence."
+    reference_docs:
+      - "https://docs.px4.io/main/en/msg_docs/EstimatorStatus"
+      - "https://docs.px4.io/main/en/log/flight_review"
+
+  communication_quality:
+    warn_score_min: 80.0
+    problem_score_min: 60.0
+    unit: "score"
+    suggestion: "Review telemetry packet loss, radio buffer health, and GCS link quality."
+    reference_class: "mixed_reference"
+    signal_semantics: "px4_explicit"
+    threshold_source: "PX4 field semantics + product operating thresholds"
+    threshold_rationale: "Packet loss, buffer overruns, and receive errors are more transport-neutral than RSSI alone."
+    mode_gate: "all_logged_samples"
+    normalization_basis: "score from telemetry loss/error counters, with radio fallback context"
+    required_topics:
+      - "telemetry_status"
+      - "radio_status"
+    fallback_policy: "Use radio_status-only evidence when telemetry_status is missing, with lower confidence."
+    reference_docs:
+      - "https://docs.px4.io/main/en/msg_docs/TelemetryStatus"
+      - "https://docs.px4.io/main/en/msg_docs/RadioStatus"
+
+  failsafe_mode_anomaly_count:
+    warn: 1.0
+    problem: 3.0
+    unit: "회 (전체 비행시간 대비)"
+    suggestion: "Review failsafe root cause, trigger frequency, and safety action configuration."
+    reference_class: "mixed_reference"
+    signal_semantics: "px4_explicit"
+    threshold_source: "Product default: recoverable event >0 => warning, >1/hr => problem, critical event => problem"
+    threshold_rationale: "Flight-time-normalized event frequency is more meaningful than raw switch count alone."
+    mode_gate: "all_logged_samples"
+    normalization_basis: "effective events per flight hour with short-flight floor of 10 minutes"
+    required_topics:
+      - "vehicle_status"
+    fallback_policy: "If explicit failsafe evidence is sparse, use lower-confidence mode-switch heuristic."
+    reference_docs:
+      - "https://docs.px4.io/main/en/msg_docs/VehicleStatus"
+      - "https://docs.px4.io/main/en/config/safety"
+
+  failsafe_event_count:
+    warn: 1.0
+    problem: 3.0
+    unit: "회"
+    suggestion: "Review failsafe trigger source and safety action configuration."
+    reference_class: "mixed_reference"
+    signal_semantics: "px4_explicit"
+    threshold_source: "Product default: any explicit failsafe event => warning, repeated or critical events => problem"
+    threshold_rationale: "Absolute failsafe occurrence count is the clearest operator-facing safety metric."
+    mode_gate: "all_logged_samples"
+    normalization_basis: "absolute explicit/recoverable failsafe event count with critical-event escalation"
+    required_topics:
+      - "vehicle_status"
+    fallback_policy: "If explicit failsafe evidence is sparse, use lower-confidence mode-switch heuristic."
+    reference_docs:
+      - "https://docs.px4.io/main/en/msg_docs/VehicleStatus"
+      - "https://docs.px4.io/main/en/config/safety"
+
+  mission_stability:
+    warn_score_min: 80.0
+    problem_score_min: 60.0
+    unit: "score"
+    suggestion: "Review unexpected mode divergence and mission-phase mode switching stability."
+    reference_class: "mixed_reference"
+    signal_semantics: "px4_explicit"
+    threshold_source: "Product default: nav_state divergence score, with mode-switch fallback"
+    threshold_rationale: "Mission stability is best represented by how often the actual mode diverges from the intended mode."
+    mode_gate: "all_logged_samples"
+    normalization_basis: "score from nav_state_user_intention divergence ratio, or mode-switch-rate fallback"
+    required_topics:
+      - "vehicle_status"
+    fallback_policy: "If nav_state_user_intention is unavailable, use mode-switch frequency as a lower-confidence proxy."
+    reference_docs:
+      - "https://docs.px4.io/main/en/msg_docs/VehicleStatus"
+
+  altitude_tracking_error:
+    warn: 3.0
+    problem: 8.0
+    unit: "m MAE"
+    suggestion: "Review vertical control tuning."
+    applicable_modes: ["AltCtl", "PosCtl", "Mission", "Loiter", "RTL", "PositionSlow", "AltitudeCruise", "Descend", "Offboard", "Takeoff", "Land", "FollowTarget", "PrecisionLand", "Orbit", "VTOLTakeoff"]
+    excluded_modes: ["Manual", "Stabilized", "Acro"]
+    mode_gate: "nav_state_applicable_modes"
+
+  hover_altitude_hold_error:
+    warn: 1.5
+    problem: 4.0
+    unit: "m MAE"
+    suggestion: "Tune hover altitude controller."
+    applicable_modes: ["AltCtl", "PosCtl", "Loiter", "RTL", "Offboard", "Takeoff", "Land", "PrecisionLand", "VTOLTakeoff"]
+    excluded_modes: ["Manual", "Stabilized", "Acro"]
+    mode_gate: "nav_state_applicable_modes"
+
+  tecs_altitude_tracking_error:
+    warn: 4.0
+    problem: 10.0
+    unit: "m MAE"
+    suggestion: "Tune TECS height loop and energy balance."
+    applicable_modes: ["Mission", "Loiter", "RTL", "Offboard", "Takeoff", "Land", "FollowTarget", "Orbit", "VTOLTakeoff", "AltitudeCruise", "Descend"]
+    excluded_modes: ["Manual", "Stabilized", "Acro"]
+    mode_gate: "nav_state_applicable_modes"
+
+  tecs_airspeed_tracking_error:
+    warn: 2.0
+    problem: 5.0
+    unit: "m/s MAE"
+    suggestion: "Tune TECS speed loop and airspeed calibration."
+    applicable_modes: ["Mission", "Loiter", "RTL", "Offboard", "Takeoff", "Land", "FollowTarget", "Orbit", "VTOLTakeoff", "AltitudeCruise", "Descend"]
+    excluded_modes: ["Manual", "Stabilized", "Acro"]
+    mode_gate: "nav_state_applicable_modes"
+
+  tecs_energy_balance_error:
+    warn: 10.0
+    problem: 25.0
+    unit: "m (균형 오차)"
+    suggestion: "Tune TECS total energy balance (pitch/throttle split)."
+    applicable_modes: ["Mission", "Loiter", "RTL", "Offboard", "Takeoff", "Land", "FollowTarget", "Orbit", "VTOLTakeoff", "AltitudeCruise", "Descend"]
+    excluded_modes: ["Manual", "Stabilized", "Acro"]
+    mode_gate: "nav_state_applicable_modes"
+
+  airspeed_consistency:
+    warn: 2.5
+    problem: 6.0
+    unit: "m/s residual RMS"
+    suggestion: "Check pitot calibration and wind estimation consistency."
+    applicable_modes: ["PosCtl", "Mission", "Loiter", "RTL", "Offboard", "Takeoff", "Land", "FollowTarget", "Orbit", "VTOLTakeoff", "AltitudeCruise", "Descend"]
+    excluded_modes: ["Manual", "Stabilized", "Acro"]
+    mode_gate: "nav_state_applicable_modes"
+    reference_class: "derived_from_px4"
+    signal_semantics: "px4_explicit"
+    threshold_source: "TAS versus GPS velocity-minus-wind residual RMS"
+    threshold_rationale: "GPS ground velocity is converted to an air-relative vector before comparison; raw TAS-ground-speed difference is not scored."
+    normalization_basis: "time-weighted centered RMS of TAS minus |GPS velocity - wind|"
+
+  airspeed_scale_appropriateness:
+    warn: 0.5
+    problem: 2.0
+    unit: "m/s gap"
+    suggestion: "순항 평균 TAS와 GPS velocity-minus-wind 기준 속도의 차이가 ±0.5 m/s 이내인지 확인. 초과하면 wind estimate와 pitot 상태를 확인한 뒤 ASPD_SCALE_n을 보수적으로 검토."
+    applicable_modes: ["PosCtl", "Mission", "Loiter", "RTL", "Offboard", "Takeoff", "Land", "FollowTarget", "Orbit", "VTOLTakeoff", "AltitudeCruise", "Descend"]
+    excluded_modes: ["Manual", "Stabilized", "Acro"]
+    mode_gate: "nav_state_applicable_modes"
+    reference_class: "derived_from_px4"
+    signal_semantics: "px4_explicit"
+    threshold_source: "Cruise-mean TAS versus GPS velocity-minus-wind magnitude"
+    threshold_rationale: "Wind-vector correction is required before treating the mean speed difference as a scale indicator."
+    normalization_basis: "absolute cruise-mean TAS minus air-relative reference gap"
+
+  navigation_path_tracking_error:
+    warn: 10.0
+    problem: 25.0
+    unit: "m MAE"
+    suggestion: "Review NPFG/path tuning together with roll tracking."
+    applicable_modes: ["PosCtl", "Mission", "Loiter", "RTL", "Offboard", "Takeoff", "Land", "FollowTarget", "PrecisionLand", "Orbit", "VTOLTakeoff"]
+    excluded_modes: ["Manual", "Stabilized", "Acro"]
+    reference_class: "px4_explicit"
+    signal_semantics: "px4_explicit"
+    threshold_source: "PX4 npfg_status.signed_track_error (primary) or position_controller_status.xtrack_error (secondary) + product default MAE thresholds"
+    threshold_rationale: "Use only explicit PX4 cross-track fields; position-to-waypoint-setpoint distance is not a cross-track metric."
+    mode_gate: "path_relevant_nav_states"
+    normalization_basis: "명시적 signed cross-track error 절대값의 시간 가중 평균(MAE)"
+    required_topics:
+      - "npfg_status.signed_track_error|position_controller_status.xtrack_error"
+      - "vehicle_status.nav_state_user_intention|vehicle_status.nav_state"
+    fallback_policy: "Use position_controller_status.xtrack_error only when NPFG signed_track_error is absent; otherwise report unavailable."
+    reference_docs:
+      - "https://docs.px4.io/main/en/msg_docs/VehicleLocalPositionSetpoint"
+      - "https://docs.px4.io/main/en/msg_docs/VehicleStatus.html"
+      - "https://docs.px4.io/v1.13/en/log/flight_review"
+
+  navigation_path_tracking_reliability:
+    warn_score_min: 80.0
+    problem_score_min: 60.0
+    unit: "score"
+    suggestion: "Review NAV_ACC_RAD and local-position validity together with path-tail error."
+    applicable_modes: ["PosCtl", "Mission", "Loiter", "RTL", "Offboard", "Takeoff", "Land", "FollowTarget", "PrecisionLand", "Orbit", "VTOLTakeoff"]
+    excluded_modes: ["Manual", "Stabilized", "Acro"]
+    warn_p95_ratio: 0.8
+    problem_p95_ratio: 1.2
+    xy_valid_warn: 98.0
+    xy_valid_problem: 95.0
+    reference_class: "mixed_reference"
+    signal_semantics: "px4_explicit"
+    threshold_source: "NAV_ACC_RAD + vehicle_local_position xy_valid/v_xy_valid cross-check"
+    threshold_rationale: "Separate path-tracking confidence from pure path error by cross-checking tail error against NAV_ACC_RAD and local-position validity ratio."
+    mode_gate: "path_relevant_nav_states"
+    normalization_basis: "P95/reference ratio and xy_valid ratio cross-check"
+    required_topics:
+      - "vehicle_local_position_setpoint.x/y"
+      - "vehicle_local_position.x/y"
+      - "vehicle_status.nav_state_user_intention|vehicle_status.nav_state"
+      - "vehicle_local_position.xy_valid|vehicle_local_position.v_xy_valid"
+    fallback_policy: "Use whichever of NAV_ACC_RAD or xy_valid/v_xy_valid is available, with reduced confidence."
+    reference_docs:
+      - "https://docs.px4.io/main/en/msg_docs/VehicleLocalPositionSetpoint"
+      - "https://docs.px4.io/main/en/msg_docs/VehicleStatus.html"
+      - "https://docs.px4.io/v1.13/en/log/flight_review"
+
+  throttle_pitch_coupling:
+    warn: 60.0
+    problem: 80.0
+    unit: "corr %"
+    suggestion: "Review TECS and pitch/throttle loop decoupling."
+
+  rpm_stability:
+    warn: 5.0
+    problem: 12.0
+    unit: "% CV"
+    suggestion: "Inspect rotor governor/RPM control stability."
+
+  rotor_harmonic_vibration:
+    warn: 12.0
+    problem: 22.0
+    unit: "dB peak/median"
+    suggestion: "Inspect rotor harmonics and structural resonance."
+
+  control_coupling_index:
+    warn: 35.0
+    problem: 60.0
+    unit: "corr %"
+    suggestion: "R/P/Y 채널 간 결합(cross-axis coupling)이 큽니다. mixer/모터 매핑, IMU 정렬, CG 균형을 점검하세요."
+
+  transition_duration:
+    warn: 12.0
+    problem: 25.0
+    unit: "s"
+    suggestion: "Tune transition airspeed/thrust schedule."
+    mode_gate: "transition_event_segments"
+
+  transition_altitude_loss:
+    warn: 8.0
+    problem: 20.0
+    unit: "m"
+    suggestion: "Reduce transition altitude dip with pitch/thrust tuning."
+    mode_gate: "transition_event_segments"
+
+tuning_guidance:
+  hover_altitude_hold_error:
+    warning:
+      likely_causes:
+        - "Vertical loop gain 부족 또는 hover thrust 추정 오차"
+        - "Baro/GNSS 고도 입력 노이즈"
+      priority_checks:
+        - "rate tracking error"
+        - "actuator output saturation"
+        - "innovation spike"
+      tuning_actions:
+        - "고도 루프 gain을 소폭 재조정하고 hover thrust 추정을 재확인"
+        - "고도 센서 필터/퓨전 설정 점검"
+      verification_checklist:
+        - "동일 조건 hover 구간 MAE 감소 여부 확인"
+        - "재튜닝 후 과도진동/overshoot 증가 여부 확인"
+    problem:
+      likely_causes:
+        - "고도 루프 안정도 저하 또는 actuator 한계"
+        - "고도 참조 데이터 불일치"
+      priority_checks:
+        - "rate tracking error"
+        - "actuator output saturation"
+        - "sensor offset"
+      tuning_actions:
+        - "안정 baseline 파라미터로 복귀 후 단계적 재튜닝"
+        - "센서 캘리브레이션 및 z/z_sp 토픽 정합성 검증"
+      verification_checklist:
+        - "장시간 hover에서 drift/발산 없음"
+        - "상승/하강 명령 추종 안정성 확보"
+
+  tecs_energy_balance_error:
+    warning:
+      likely_causes:
+        - "TECS pitch/throttle 분배 불균형"
+        - "airspeed/altitude 입력 지연"
+      priority_checks:
+        - "TECS response"
+        - "airspeed consistency"
+        - "innovation spike"
+      tuning_actions:
+        - "TECS 에너지 분배 파라미터 재조정"
+        - "airspeed/altitude 센서 지연 및 필터 설정 점검"
+      verification_checklist:
+        - "cruise 구간 energy-height MAE 감소 확인"
+        - "속도/고도 추종이 동시에 악화되지 않는지 확인"
+    problem:
+      likely_causes:
+        - "TECS 모델-기체 동역학 불일치"
+        - "속도/고도 신호 신뢰도 저하"
+      priority_checks:
+        - "TECS response"
+        - "airspeed consistency"
+        - "actuator output saturation"
+      tuning_actions:
+        - "TECS 파라미터를 보수적으로 재설정 후 재시작"
+        - "pitot/고도 센서 이상 여부 선행 점검"
+      verification_checklist:
+        - "명령 변화 시 에너지 발산/붕괴 없음"
+        - "고속/저속 구간 모두 안정 추종"
+
+  airspeed_scale_appropriateness:
+    warning:
+      likely_causes:
+        - "순항 평균 TAS와 GPS-minus-wind 기준 속도의 차이가 ±0.5 m/s 허용 범위를 벗어남"
+        - "pitot scale 또는 wind estimate 품질 영향 가능성"
+      priority_checks:
+        - "Airspeed vs GPS-minus-wind reference"
+        - "순항 구간 TAS 평균 vs air-relative 기준 평균"
+        - "ASPD_SCALE_n 설정값"
+      tuning_actions:
+        - "wind estimate와 pitot 상태를 먼저 확인한 뒤 ASPD_SCALE_n을 보수적으로 검토"
+        - "한 번에 full-ratio 보정보다 소폭 조정 후 동일 조건 비행으로 재검증"
+      verification_checklist:
+        - "재비행 후 TAS-air-reference 평균 차이가 ±0.5 m/s 이내로 수렴"
+        - "stall/overspeed 경향이 악화되지 않음"
+    problem:
+      likely_causes:
+        - "TAS와 GPS-minus-wind 기준 평균 차이가 ±2 m/s 이상으로 크게 벌어짐"
+        - "pitot 설치, 튜브 막힘, wind estimate 또는 기수 주변 유동 교란 가능성"
+      priority_checks:
+        - "Airspeed vs GPS-minus-wind reference"
+        - "동일 고도/스로틀의 순항 평균 비교"
+        - "pitot 설치 및 sensor health"
+      tuning_actions:
+        - "ASPD_SCALE_n을 차이 방향으로 단계 조정 (full-ratio 추정값 참고, 1차 조정은 ±6% 이내로 보수적)"
+        - "스케일 보정만으로 차이가 안 줄면 pitot 설치/튜브 상태 점검 후 재비행"
+      verification_checklist:
+        - "재비행 후 TAS-air-reference 차이가 단조 감소"
+        - "속도 관련 다른 평가 항목(airspeed_consistency 등)도 함께 개선"
+
+  navigation_path_tracking_error:
+    warning:
+      likely_causes:
+        - "NPFG/path tuning이 약간 공격적이거나 둔함"
+        - "roll tracking 또는 풍 보상 한계로 경로 추종이 흔들림"
+      priority_checks:
+        - "2D flight path"
+        - "roll tracking during turns"
+        - "NPFG/path tuning"
+      tuning_actions:
+        - "경로 overshoot/lag를 보며 NPFG_PERIOD 검토"
+        - "path tuning 전에 roll setpoint tracking 상태 확인"
+      verification_checklist:
+        - "2D flight path overshoot/lag 감소"
+        - "선회 중 추가 진동 없이 경로 추종 개선"
+    problem:
+      likely_causes:
+        - "path-control tuning이 기체의 roll dynamics와 맞지 않음"
+        - "항법 추정 품질이 낮아 정밀한 path holding이 어려움"
+      priority_checks:
+        - "2D flight path"
+        - "roll tracking during turns"
+        - "GPS/estimator quality"
+      tuning_actions:
+        - "공격적 NPFG tuning 전에 roll tracking과 estimator quality 안정화"
+        - "보수적인 baseline에서 path-control 파라미터 재튜닝"
+      verification_checklist:
+        - "cross-track error 및 orbit wobble 감소"
+        - "불안정한 turn behavior 없이 path tracking 개선"
+
+  transition_altitude_loss:
+    warning:
+      likely_causes:
+        - "전환 구간 thrust support 부족"
+        - "transition pitch profile 부적합"
+      priority_checks:
+        - "mode transition logic impact"
+        - "TECS response"
+        - "airspeed consistency"
+      tuning_actions:
+        - "전환 thrust margin 상향"
+        - "전환 pitch/airspeed 스케줄 완화"
+      verification_checklist:
+        - "전환 중 altitude dip 감소"
+        - "전환 완료 시간 증가가 과도하지 않은지 확인"
+    problem:
+      likely_causes:
+        - "전환 제어 로직 상 에너지 급손실"
+      priority_checks:
+        - "mode transition logic impact"
+        - "actuator output saturation"
+        - "rate tracking error"
+      tuning_actions:
+        - "전환 조건/게인을 전면 재점검"
+        - "낮은 에너지 상태에서 전환 제한"
+      verification_checklist:
+        - "최악 조건에서도 안전 고도 여유 확보"
+        - "반복 전환 시 일관된 안정성 확보"

@@ -1,0 +1,13 @@
+# (2026-05-28) 버전 핀: 현재 검증된 동작 환경 (Python 3.14.5) 기준.
+# 빌드 재현성 확보용 — 새 패키지가 호환 깨질 위험 차단.
+# 업그레이드 시: 1) 핀 풀고 테스트 → 2) 검증되면 새 버전으로 재핀.
+numpy==2.4.6
+polars==1.41.1
+scipy==1.17.1
+pyulog==1.2.2
+PySide6==6.11.1
+pyqtgraph==0.14.0
+PyYAML==6.0.3
+
+# 다중 로그 포맷 reader (ROS1/2, ArduPilot DataFlash/MAVLink)
+-r requirements-formats.txt

@@ -1,0 +1,29 @@
+profile_id: "general_controller_tuning"
+version: "1.0"
+description: "General controller tuning profile for multicopter and VTOL MC mode."
+
+scope:
+  airframes: ["MULTICOPTER", "VTOL"]
+  loops: ["rate"]
+  axes: ["roll", "pitch"]
+  preferred_segments: ["step_like", "hover", "climb"]
+
+weights:
+  response:
+    overshoot: 1.2
+    rise_time: 0.8
+    settling_time: 1.0
+    steady_state_error: 1.0
+    oscillation_index: 1.1
+    dominant_frequency: 0.7
+  confounders:
+    saturation_ratio: 1.2
+    vibration_severity: 1.2
+    innovation_ratio: 1.0
+    control_effort_variation: 0.8
+
+notes:
+  - "확정형 진단이 아닌 가능성 기반 recommendation을 제공한다."
+  - "confounder가 높을 때는 PID 추론 confidence를 낮춘다."
+  - "maneuver 품질이 낮으면 재시험/추가계측을 우선 제안한다."
+

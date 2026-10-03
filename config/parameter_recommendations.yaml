@@ -1,0 +1,611 @@
+schema_version: "1.0"
+profile: "general_controller_tuning"
+description: >
+  Conservative PX4 parameter-value recommendations derived from Control
+  Tuning Advisor issues. Each suggestion is bounded by (1) per-action
+  risk_tier, (2) per-step ±10% delta cap, (3) PX4 parameter range clamp,
+  (4) ≥70% confidence floor, and (5) confounder-first safety gates.
+  Actions whose physical consequence is hard to predict from a single
+  log (D-term increases, envelope expansions, FW speed-weight shifts)
+  are emitted as `advisory_only` text — no number is produced, the
+  pilot must verify on a calmer flight or auto-tune before acting.
+
+safety:
+  # Maximum |Δ| per single recommendation step, applied AFTER severity_delta
+  # but BEFORE PX4 range clamp. Set conservatively for real-airframe tuning:
+  # a single step never moves a parameter by more than this fraction so that
+  # the pilot can fly, verify, and decide before the next step.
+  max_delta_percent_per_step: 10.0
+
+  # Confidence floor for emitting concrete value suggestions. Below this the
+  # diagnoser still shows candidate text and rationale, but no number is
+  # produced — the user is expected to investigate before tuning.
+  min_confidence_to_recommend: 70.0
+
+  # Staged-apply guidance attached to every concrete suggestion. The pilot
+  # should not jump straight to the final number; halve the delta, fly,
+  # verify, then close the rest.
+  staged_apply:
+    enabled: true
+    first_step_fraction: 0.5
+    note: >
+      [단계 적용 권장] 1단계: 권장 Δ의 50%만 반영하고 동일 maneuver를 재비행해
+      verification 항목 모두 정상 범위인지 확인 → 2단계: 나머지 50%를 반영하고
+      재검증. 단계 사이에 진동/EKF innovation 악화 시 즉시 롤백.
+
+  # VTOL → MULTICOPTER fallback uses MC parameter family for VTOL hover-mode
+  # issues. Hover dynamics differ (longer moment arms, larger inertia, FW
+  # surface drag), so every fallback recommendation carries an explicit
+  # safety note to keep the pilot from treating it as a VTOL-specific value.
+  vtol_fallback_note: >
+    [VTOL FALLBACK] MULTICOPTER 매핑 기반 추정값입니다. VTOL hover 동역학(긴
+    모멘트 암, 큰 관성, FW 표면 항력)이 다르므로 MC 권장값을 그대로 적용하지
+    말고 단계적 검증을 권장합니다.
+
+  # If issue.tuning_candidates contains any of these "*-first" guidance
+  # texts, gain recommendations are suppressed entirely (confounder
+  # must be resolved before tuning).
+  block_when_candidates_contain:
+    - "actuator authority check first"
+    - "hardware vibration mitigation first"
+    - "estimator / sensor check first"
+    - "filter tuning first"
+
+  # Per-action risk tier multipliers, applied AFTER severity_delta and
+  # BEFORE max_delta_percent_per_step cap. Tier shrinks the effective Δ for
+  # actions whose physical consequence is harder to predict from a single
+  # log (D-term: noise amplification; envelope expansion: thrust/structural
+  # margin assumption). `advisory_only` actions emit text guidance only.
+  risk_tier_multipliers:
+    low: 1.0       # P/I/FF/TC decrease, attitude P decrease — stabilizing direction
+    medium: 0.7    # P/I/FF/TC increase — response acceleration
+    high: 0.5      # D increase, envelope expansion — kept narrow even if used
+
+# (airframe, issue_id) -> { candidate_text: [parameter_action, ...] }
+#
+# Per-action keys (in addition to param/severity_delta/range/rationale/...):
+#   risk_tier: "low" | "medium" | "high"
+#       physical reversibility class — multiplier applied before the global cap.
+#   advisory_only: true
+#       suppress concrete value emission; recommender returns advisory text
+#       in place of a `suggested` number. Used for D-term increases, envelope
+#       expansions (*_MAX, TILTMAX, CLMB_MAX, SINK_MIN), FW speed-weight, and
+#       VTOL transition envelope — all of which depend on hardware margins
+#       the single-log analyzer cannot verify.
+mappings:
+  - airframe: "MULTICOPTER"
+    issue_id: "rate_loop_roll"
+    candidates:
+      "P decrease candidate":
+        - param: "MC_ROLLRATE_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.85 }
+          range: [0.01, 0.5]
+          rationale: "Roll rate P 감소: overshoot 완화. 안정화 방향이므로 저위험."
+          verification: "동일 step input에서 overshoot < 18%, settling < 1.2s 재측정."
+      "P increase candidate":
+        - param: "MC_ROLLRATE_P"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.15 }
+          range: [0.01, 0.5]
+          rationale: "Roll rate P 증가: rise time 단축. 응답 가속은 진동 위험 동반 — 단계 적용."
+          verification: "rise time 단축 폭과 dominant_freq / vibration_rms 동시 확인."
+      "D increase candidate":
+        - param: "MC_ROLLRATE_D"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 0.01]
+          rationale: "Roll rate D 증가: oscillation/overshoot 감쇠 가능하지만 노이즈 증폭으로 모터 발진 위험. 단일 로그만으로 적정값 판단 불가."
+          verification: "자이로 RMS 노이즈 측정 + auto-tune D 결과와 교차검증 후에만 적용."
+          gate:
+            require_metric_below:
+              vibration_rms: 3.5
+      "I increase candidate":
+        - param: "MC_ROLLRATE_I"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 0.6]
+          rationale: "Roll rate I 증가: steady-state error 해소. integrator windup 위험 동반."
+          verification: "steady-state tracking error 감소와 windup 지표 동시 확인."
+      "FF increase candidate":
+        - param: "MC_ROLLRATE_FF"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 2.0]
+          rationale: "Roll rate FF 증가: rise lag 보정. overshoot 없는 lag일 때만 유효."
+          verification: "rise time 단축과 overshoot 변화 동시 확인."
+
+  - airframe: "MULTICOPTER"
+    issue_id: "rate_loop_pitch"
+    candidates:
+      "P decrease candidate":
+        - param: "MC_PITCHRATE_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.85 }
+          range: [0.01, 0.6]
+          rationale: "Pitch rate P 감소: overshoot 완화. 안정화 방향이므로 저위험."
+          verification: "동일 step input에서 overshoot < 18%, settling < 1.2s 재측정."
+      "P increase candidate":
+        - param: "MC_PITCHRATE_P"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.15 }
+          range: [0.01, 0.6]
+          rationale: "Pitch rate P 증가: rise time 단축. 응답 가속은 진동 위험 동반 — 단계 적용."
+          verification: "rise time 단축 폭과 dominant_freq / vibration_rms 동시 확인."
+      "D increase candidate":
+        - param: "MC_PITCHRATE_D"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 0.01]
+          rationale: "Pitch rate D 증가: oscillation/overshoot 감쇠 가능하지만 노이즈 증폭으로 모터 발진 위험. 단일 로그만으로 적정값 판단 불가."
+          verification: "자이로 RMS 노이즈 측정 + auto-tune D 결과와 교차검증 후에만 적용."
+          gate:
+            require_metric_below:
+              vibration_rms: 3.5
+      "I increase candidate":
+        - param: "MC_PITCHRATE_I"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 0.6]
+          rationale: "Pitch rate I 증가: steady-state error 해소. integrator windup 위험 동반."
+          verification: "steady-state tracking error 감소와 windup 지표 동시 확인."
+      "FF increase candidate":
+        - param: "MC_PITCHRATE_FF"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 2.0]
+          rationale: "Pitch rate FF 증가: rise lag 보정. overshoot 없는 lag일 때만 유효."
+          verification: "rise time 단축과 overshoot 변화 동시 확인."
+
+  - airframe: "MULTICOPTER"
+    issue_id: "rate_loop_yaw"
+    candidates:
+      "P decrease candidate":
+        - param: "MC_YAWRATE_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.85 }
+          range: [0.0, 0.6]
+          rationale: "Yaw rate P 감소: yaw overshoot 완화. yaw 응답은 본래 느림."
+          verification: "yaw step 응답 overshoot < 18%, dominant_freq 변화 확인."
+      "P increase candidate":
+        - param: "MC_YAWRATE_P"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.15 }
+          range: [0.0, 0.6]
+          rationale: "Yaw rate P 증가: yaw tracking 보강. 응답 가속은 진동 위험 동반."
+          verification: "yaw rise time 개선과 vibration_rms / control_effort_variation 영향 동시 확인."
+      "D increase candidate":
+        - param: "MC_YAWRATE_D"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 0.01]
+          rationale: "Yaw rate D 증가: yaw oscillation 감쇠 가능하지만 PX4에서 yaw D는 매우 작음 — 노이즈 증폭 위험이 P/Roll/Pitch D보다 크다. 권장값 자동 산출 보류."
+          verification: "yaw 진동 dominant_freq, 자이로 noise floor 측정 후에만 수동 조정."
+          gate:
+            require_metric_below:
+              vibration_rms: 3.5
+      "I increase candidate":
+        - param: "MC_YAWRATE_I"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 0.6]
+          rationale: "Yaw rate I 증가: yaw steady-state error 해소."
+          verification: "yaw heading tracking error와 integrator windup 동시 확인."
+      "FF increase candidate":
+        - param: "MC_YAWRATE_FF"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 2.0]
+          rationale: "Yaw rate FF 증가: yaw lag 보정 (overshoot 없는 tracking lag일 때)."
+          verification: "yaw rise time 단축과 overshoot 변화 동시 확인."
+
+  # --- Depth expansion: attitude loop (각도 루프) ---
+  - airframe: "MULTICOPTER"
+    issue_id: "attitude_loop_roll"
+    candidates:
+      "attitude P decrease candidate":
+        - param: "MC_ROLL_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.85 }
+          range: [0.0, 12.0]
+          rationale: "Roll attitude P 감소: attitude overshoot/oscillation 완화. 안정화 방향이므로 저위험."
+          verification: "attitude step 응답 overshoot < 15%, rise < 0.8s 재측정."
+      "attitude P increase candidate":
+        - param: "MC_ROLL_P"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.15 }
+          range: [0.0, 12.0]
+          rationale: "Roll attitude P 증가: attitude tracking error / rise lag 개선. inner-loop rate 명령이 커지므로 saturation 위험 동반."
+          verification: "attitude MAE 감소와 inner-loop rate saturation 비율 동시 확인."
+
+  - airframe: "MULTICOPTER"
+    issue_id: "attitude_loop_pitch"
+    candidates:
+      "attitude P decrease candidate":
+        - param: "MC_PITCH_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.85 }
+          range: [0.0, 12.0]
+          rationale: "Pitch attitude P 감소: attitude overshoot/oscillation 완화. 안정화 방향이므로 저위험."
+          verification: "attitude step 응답 overshoot < 15%, rise < 0.8s 재측정."
+      "attitude P increase candidate":
+        - param: "MC_PITCH_P"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.15 }
+          range: [0.0, 12.0]
+          rationale: "Pitch attitude P 증가: attitude tracking error / rise lag 개선. inner-loop rate 명령이 커지므로 saturation 위험 동반."
+          verification: "attitude MAE 감소와 inner-loop rate saturation 비율 동시 확인."
+
+  - airframe: "MULTICOPTER"
+    issue_id: "attitude_loop_yaw"
+    candidates:
+      "attitude P decrease candidate":
+        - param: "MC_YAW_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.85 }
+          range: [0.0, 5.0]
+          rationale: "Yaw attitude P 감소: yaw heading overshoot 완화. 안정화 방향이므로 저위험."
+          verification: "yaw step 응답 overshoot/oscillation 재측정."
+      "attitude P increase candidate":
+        - param: "MC_YAW_P"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.15 }
+          range: [0.0, 5.0]
+          rationale: "Yaw attitude P 증가: heading tracking error 개선. yaw rate 명령 증가."
+          verification: "yaw MAE 감소와 yaw rate saturation 비율 동시 확인."
+
+  # --- Depth expansion: rate setpoint MAX saturation ---
+  # Rate MAX 확장은 actuator/구조 여유에 의존 — single-log 분석으로 안전 검증 불가 → advisory_only.
+  - airframe: "MULTICOPTER"
+    issue_id: "rate_limit_saturation_roll"
+    candidates:
+      "rate MAX increase candidate":
+        - param: "MC_ROLLRATE_MAX"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 1800.0]
+          rationale: "Roll rate MAX 상향: mission이 요구하는 rate 수용. 인가/구조 여유는 단일 로그로 검증 불가 — 수치 권장 보류."
+          verification: "지상 인가/모터 헤드룸 확인 후 +10°/s씩 점진 적용, rate 포화 비율과 actuator saturation 재측정."
+      "attitude P decrease candidate":
+        - param: "MC_ROLL_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.88 }
+          range: [0.0, 12.0]
+          rationale: "Roll attitude P 감소: rate 명령 자체를 줄여 MAX 포화 완화. 안정화 방향."
+          verification: "attitude tracking 영향과 rate 포화 비율 동시 관찰."
+
+  - airframe: "MULTICOPTER"
+    issue_id: "rate_limit_saturation_pitch"
+    candidates:
+      "rate MAX increase candidate":
+        - param: "MC_PITCHRATE_MAX"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 1800.0]
+          rationale: "Pitch rate MAX 상향: mission이 요구하는 rate 수용. 인가/구조 여유는 단일 로그로 검증 불가."
+          verification: "지상 인가/모터 헤드룸 확인 후 +10°/s씩 점진 적용, rate 포화 비율 재측정."
+      "attitude P decrease candidate":
+        - param: "MC_PITCH_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.88 }
+          range: [0.0, 12.0]
+          rationale: "Pitch attitude P 감소: rate 명령 자체를 줄여 MAX 포화 완화. 안정화 방향."
+          verification: "attitude tracking 영향과 rate 포화 비율 동시 관찰."
+
+  - airframe: "MULTICOPTER"
+    issue_id: "rate_limit_saturation_yaw"
+    candidates:
+      "rate MAX increase candidate":
+        - param: "MC_YAWRATE_MAX"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 1800.0]
+          rationale: "Yaw rate MAX 상향: heading mission이 요구하는 rate 수용. 인가/구조 여유 검증 필수."
+          verification: "yaw rate 포화 비율 재측정, 모터 헤드룸 확인 후 적용."
+      "attitude P decrease candidate":
+        - param: "MC_YAW_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.88 }
+          range: [0.0, 5.0]
+          rationale: "Yaw attitude P 감소: rate 명령 자체를 줄여 MAX 포화 완화."
+          verification: "heading tracking 영향과 rate 포화 비율 동시 관찰."
+
+  # --- Depth expansion: position controller acceleration limits ---
+  # 가속 한계 확장은 추력 여유 가정에 의존 — advisory_only.
+  - airframe: "MULTICOPTER"
+    issue_id: "acceleration_limit_saturation"
+    candidates:
+      "MPC_ACC_HOR_MAX increase candidate":
+        - param: "MPC_ACC_HOR_MAX"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 30.0]
+          rationale: "Horizontal acc limit 상향: aggressive mission profile 수용. 추력 여유는 단일 로그로 검증 불가 — 수치 권장 보류."
+          verification: "limit 상향 후 position MAE / attitude saturation / hover throttle 동시 관찰."
+      "MPC_ACC_UP_MAX increase candidate":
+        - param: "MPC_ACC_UP_MAX"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 30.0]
+          rationale: "Up acc limit 상향: climb 응답 개선. 추력 여유 검증 필수."
+          verification: "climb segment tracking과 throttle saturation 동시 관찰."
+      "MPC_ACC_DOWN_MAX increase candidate":
+        - param: "MPC_ACC_DOWN_MAX"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 30.0]
+          rationale: "Down acc limit 상향: descent 응답 개선. 안전 한계 직접 영향 — 수치 권장 보류."
+          verification: "descent segment tracking과 attitude 안정성 동시 관찰."
+
+  # --- Depth expansion: tilt limit ---
+  - airframe: "MULTICOPTER"
+    issue_id: "tilt_limit_saturation"
+    candidates:
+      "MPC_TILTMAX_AIR increase candidate":
+        - param: "MPC_TILTMAX_AIR"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 89.0]
+          rationale: "Tilt limit 상향: 가속 응답성 개선 가능하나 hover throttle 여유 부족 시 altitude 손실 위험. 수치 권장 보류."
+          verification: "지상 인가 + hover throttle 50% 미만 확인 후 +5°씩 점진 적용. thrust saturation / altitude hold 안정성 동시 관찰."
+
+  # =====================================================================
+  # FIXED WING mappings
+  # =====================================================================
+
+  - airframe: "FIXED_WING"
+    issue_id: "rate_loop_roll"
+    candidates:
+      "P decrease candidate":
+        - param: "FW_RR_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.85 }
+          range: [0.0, 1.0]
+          rationale: "FW Roll rate P 감소: overshoot 완화. 안정화 방향이므로 저위험."
+          verification: "동일 maneuver에서 overshoot/settling 재측정."
+      "P increase candidate":
+        - param: "FW_RR_P"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.15 }
+          range: [0.0, 1.0]
+          rationale: "FW Roll rate P 증가: rate tracking 보강. 응답 가속 동반 위험."
+          verification: "rate MAE 감소와 oscillation / control surface saturation 동시 관찰."
+      "I increase candidate":
+        - param: "FW_RR_I"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 1.0]
+          rationale: "FW Roll rate I 증가: steady-state offset 해소. integrator windup 위험."
+          verification: "trim disturbance 시 steady-state error 재측정."
+      "FF increase candidate":
+        - param: "FW_RR_FF"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 5.0]
+          rationale: "FW Roll rate FF 증가: tracking lag 보정 (overshoot 없는 lag일 때)."
+          verification: "rise time 단축과 overshoot 변화 동시 확인."
+
+  - airframe: "FIXED_WING"
+    issue_id: "rate_loop_pitch"
+    candidates:
+      "P decrease candidate":
+        - param: "FW_PR_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.85 }
+          range: [0.0, 1.0]
+          rationale: "FW Pitch rate P 감소: overshoot 완화. 안정화 방향이므로 저위험."
+          verification: "동일 maneuver에서 overshoot/settling 재측정."
+      "P increase candidate":
+        - param: "FW_PR_P"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.15 }
+          range: [0.0, 1.0]
+          rationale: "FW Pitch rate P 증가: rate tracking 보강. 응답 가속 동반 위험."
+          verification: "rate MAE 감소와 oscillation / control surface saturation 동시 관찰."
+      "I increase candidate":
+        - param: "FW_PR_I"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 1.0]
+          rationale: "FW Pitch rate I 증가: steady-state offset 해소. integrator windup 위험."
+          verification: "steady-state error 재측정."
+      "FF increase candidate":
+        - param: "FW_PR_FF"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 5.0]
+          rationale: "FW Pitch rate FF 증가: tracking lag 보정 (overshoot 없는 lag일 때)."
+          verification: "rise time 단축 확인."
+
+  - airframe: "FIXED_WING"
+    issue_id: "rate_loop_yaw"
+    candidates:
+      "P decrease candidate":
+        - param: "FW_YR_P"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.85 }
+          range: [0.0, 1.0]
+          rationale: "FW Yaw rate P 감소: yaw oscillation 완화. yaw는 본래 보조 축."
+          verification: "yaw rate oscillation 재측정."
+      "P increase candidate":
+        - param: "FW_YR_P"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.15 }
+          range: [0.0, 1.0]
+          rationale: "FW Yaw rate P 증가: yaw tracking 보강."
+          verification: "yaw rate MAE 감소 / rudder saturation 동시 확인."
+      "I increase candidate":
+        - param: "FW_YR_I"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 1.0]
+          rationale: "FW Yaw rate I 증가: yaw trim offset 해소. integrator windup 위험."
+          verification: "yaw steady-state error 재측정."
+      "FF increase candidate":
+        - param: "FW_YR_FF"
+          risk_tier: "medium"
+          severity_delta: { warning: 1.08, problem: 1.12 }
+          range: [0.0, 5.0]
+          rationale: "FW Yaw rate FF 증가: yaw tracking lag 보정."
+          verification: "yaw rise time 단축 확인."
+
+  # FW attitude loop — TC semantics (lower TC = faster response)
+  - airframe: "FIXED_WING"
+    issue_id: "attitude_loop_roll"
+    candidates:
+      "attitude TC increase candidate":
+        - param: "FW_R_TC"
+          risk_tier: "low"
+          severity_delta: { warning: 1.08, problem: 1.15 }
+          range: [0.1, 1.0]
+          rationale: "FW Roll attitude time-constant 증가: 응답 완화 (overshoot/oscillation 감소). 안정화 방향."
+          verification: "attitude step 응답 overshoot 재측정."
+      "attitude TC decrease candidate":
+        - param: "FW_R_TC"
+          risk_tier: "medium"
+          severity_delta: { warning: 0.92, problem: 0.88 }
+          range: [0.1, 1.0]
+          rationale: "FW Roll attitude time-constant 감소: 응답 가속 (tracking error 개선). rate 명령 증가 동반."
+          verification: "attitude MAE 감소와 rate / control surface saturation 동시 확인."
+
+  - airframe: "FIXED_WING"
+    issue_id: "attitude_loop_pitch"
+    candidates:
+      "attitude TC increase candidate":
+        - param: "FW_P_TC"
+          risk_tier: "low"
+          severity_delta: { warning: 1.08, problem: 1.15 }
+          range: [0.1, 1.0]
+          rationale: "FW Pitch attitude time-constant 증가: 응답 완화. 안정화 방향."
+          verification: "attitude step 응답 overshoot 재측정."
+      "attitude TC decrease candidate":
+        - param: "FW_P_TC"
+          risk_tier: "medium"
+          severity_delta: { warning: 0.92, problem: 0.88 }
+          range: [0.1, 1.0]
+          rationale: "FW Pitch attitude time-constant 감소: 응답 가속. rate 명령 증가 동반."
+          verification: "attitude MAE 감소와 rate / control surface saturation 동시 확인."
+
+  # FW TECS altitude response — climb/sink envelope 확장은 advisory_only.
+  - airframe: "FIXED_WING"
+    issue_id: "tecs_altitude_response"
+    candidates:
+      "FW_T_ALT_TC decrease candidate":
+        - param: "FW_T_ALT_TC"
+          risk_tier: "medium"
+          severity_delta: { warning: 0.92, problem: 0.88 }
+          range: [1.0, 20.0]
+          rationale: "FW TECS altitude time-constant 감소: altitude loop 응답 가속. throttle/pitch 명령 변동 폭 증가."
+          verification: "climb segment altitude error와 throttle oscillation 동시 재측정."
+      "FW_T_CLMB_MAX increase candidate":
+        - param: "FW_T_CLMB_MAX"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.5, 15.0]
+          rationale: "FW TECS climb 최대치 상향: climb authority 확장. throttle 여유 / 항력 / 풍속 의존 — 단일 로그로 검증 불가."
+          verification: "climb segment throttle saturation 비율과 airspeed loss 동시 관찰."
+      "FW_T_SINK_MIN increase candidate":
+        - param: "FW_T_SINK_MIN"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.5, 15.0]
+          rationale: "FW TECS sink 최소치 상향: descent authority 확장. 안전 강하율 직접 영향."
+          verification: "descent segment airspeed / altitude tracking 동시 관찰."
+
+  # FW TECS airspeed response — SPDWEIGHT는 throttle↔pitch 우선순위를 흔드는 큰 변경 → advisory_only.
+  - airframe: "FIXED_WING"
+    issue_id: "tecs_airspeed_response"
+    candidates:
+      "FW_T_TAS_TC decrease candidate":
+        - param: "FW_T_TAS_TC"
+          risk_tier: "medium"
+          severity_delta: { warning: 0.92, problem: 0.88 }
+          range: [1.0, 20.0]
+          rationale: "FW TECS airspeed time-constant 감소: airspeed loop 응답 가속. throttle 변동 폭 증가."
+          verification: "cruise segment airspeed MAE와 throttle oscillation 동시 재측정."
+      "FW_T_SPDWEIGHT increase candidate":
+        - param: "FW_T_SPDWEIGHT"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 2.0]
+          rationale: "FW TECS speed weight 증가: pitch가 speed를 우선 tracking (altitude는 후순위). 임무 안전성 의존도가 큰 변경 — 수치 권장 보류."
+          verification: "speed/altitude trade-off 변화 + stall margin / climb 능력 동시 확인."
+      "FW_T_THR_DAMP decrease candidate":
+        - param: "FW_T_THR_DAMP"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.88 }
+          range: [0.0, 2.0]
+          rationale: "FW TECS throttle damping 감소: throttle 응답 가속. 안정화 방향."
+          verification: "throttle oscillation과 airspeed tracking 동시 확인."
+
+  # =====================================================================
+  # VTOL forward-flight mode reuses FW TECS family.
+  # =====================================================================
+  - airframe: "VTOL"
+    issue_id: "tecs_altitude_response"
+    candidates:
+      "FW_T_ALT_TC decrease candidate":
+        - param: "FW_T_ALT_TC"
+          risk_tier: "medium"
+          severity_delta: { warning: 0.92, problem: 0.88 }
+          range: [1.0, 20.0]
+          rationale: "VTOL forward-flight altitude time-constant 감소: altitude loop 응답 가속."
+          verification: "forward-flight 모드 climb segment에서 altitude error 재측정."
+      "FW_T_CLMB_MAX increase candidate":
+        - param: "FW_T_CLMB_MAX"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.5, 15.0]
+          rationale: "VTOL forward-flight climb 최대치 상향. throttle 여유 / 항력 / 풍속 의존."
+          verification: "throttle saturation 비율과 airspeed loss 동시 관찰."
+      "FW_T_SINK_MIN increase candidate":
+        - param: "FW_T_SINK_MIN"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.5, 15.0]
+          rationale: "VTOL forward-flight sink 최소치 상향. 안전 강하율 직접 영향."
+          verification: "descent segment airspeed / altitude tracking 동시 관찰."
+
+  - airframe: "VTOL"
+    issue_id: "tecs_airspeed_response"
+    candidates:
+      "FW_T_TAS_TC decrease candidate":
+        - param: "FW_T_TAS_TC"
+          risk_tier: "medium"
+          severity_delta: { warning: 0.92, problem: 0.88 }
+          range: [1.0, 20.0]
+          rationale: "VTOL forward-flight airspeed time-constant 감소."
+          verification: "cruise segment airspeed MAE 재측정."
+      "FW_T_SPDWEIGHT increase candidate":
+        - param: "FW_T_SPDWEIGHT"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 2.0]
+          rationale: "VTOL forward-flight speed weight 증가: pitch ↔ speed/altitude 우선순위 변경. 임무 안전성 의존도가 큰 변경 — 수치 권장 보류."
+          verification: "speed/altitude trade-off + stall margin 동시 확인."
+      "FW_T_THR_DAMP decrease candidate":
+        - param: "FW_T_THR_DAMP"
+          risk_tier: "low"
+          severity_delta: { warning: 0.92, problem: 0.88 }
+          range: [0.0, 2.0]
+          rationale: "VTOL forward-flight throttle damping 감소. 안정화 방향."
+          verification: "throttle oscillation과 airspeed tracking 동시 확인."
+
+  # VTOL transition envelope expansion — single-log 분석으로 안전 검증 불가 → advisory_only.
+  - airframe: "VTOL"
+    issue_id: "vtol_transition_tuning"
+    candidates:
+      "VT_F_TRANS_THR increase candidate":
+        - param: "VT_F_TRANS_THR"
+          risk_tier: "high"
+          advisory_only: true
+          range: [0.0, 1.0]
+          rationale: "Forward transition throttle 상향: transition 중 속도 확보 + altitude dip 완화. 모터 헤드룸 / 추력 여유 의존 — 수치 권장 보류."
+          verification: "동일 mission에서 transition_duration_s 와 altitude_loss_m, 모터 saturation 동시 재측정."
+      "VT_F_TRANS_DUR increase candidate":
+        - param: "VT_F_TRANS_DUR"
+          risk_tier: "high"
+          advisory_only: true
+          range: [1.0, 30.0]
+          rationale: "Forward transition 허용 시간 상향: transition 완료 authority 확장. 실패 시 hover throttle 의존 — 수치 권장 보류."
+          verification: "transition_count와 timeout 발생 여부, 실패 시 hover 복귀 동작 동시 관찰."

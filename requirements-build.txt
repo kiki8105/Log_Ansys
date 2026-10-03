@@ -1,0 +1,9 @@
+-r requirements.txt
+
+# (2026-05-28) Build/test only. The distributed EXE does not require these on the target PC.
+# PyInstaller 버전 핀 — 빌드 재현성 확보. 호환성 검증된 6.19.0 기준.
+PyInstaller==6.19.0
+pytest>=8.0
+# (2026-05-28) Optional — build.py --with-splash 옵션 사용 시 splash 이미지 CMYK→RGB 변환에 필요.
+# splash 없이 빌드하면 미설치여도 무해.
+Pillow>=10.0
