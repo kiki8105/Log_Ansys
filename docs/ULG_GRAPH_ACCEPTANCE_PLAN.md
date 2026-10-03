@@ -104,10 +104,10 @@ ULG 그래프 기능은 아래 규칙을 만족해야 완료로 판정한다.
 
 1. `ULG_STABLE`: 위 매트릭스의 자동 항목과 실제 Windows GPU 항목 통과
 2. `MULTIFORMAT_PREVIEW`: ROS1, ROS2, ArduPilot DataFlash, TLOG, 표 로그를 형식별 opt-in으로 개방
-3. `MULTIFORMAT_VISUALIZATION_STABLE`: 각 형식의 실제 숫자 로그가 cold/warm cache, 1/2/3곡선·패널, 2D/3D, 줌/커서, packaged EXE 시험을 통과하고, ULG와 같은 창에서 추가 적재·중첩·시간 정렬·제거를 반복해도 오류가 없어야 함
+3. `MULTIFORMAT_STABLE`: 각 형식의 실제 숫자 로그가 cold/warm cache와 같은 창 추가 적재·중첩·시간 정렬·제거 시험을 통과한 뒤 기본 사용자 진입점으로 승격
 4. `PLATFORM_ANALYSIS_STABLE`: 형식별 semantic alias와 별도 평가 프로파일 검증 후 활성화
 
-ULG 승인 전에는 다른 reader 구현을 삭제하지 않되 기본 사용자 진입점에서 숨긴다. PX4 평가기는 이름이 비슷한 ROS/ArduPilot 신호에 자동 적용하지 않는다.
+PX4 평가기는 이름이 비슷한 ROS/ArduPilot 신호에 자동 적용하지 않는다. ULG만 격리해 확인해야 할 때는 `ulg_stable` 정책을 명시한다.
 
 ## 7. 현재 기준 판정
 
@@ -115,7 +115,7 @@ ULG 승인 전에는 다른 reader 구현을 삭제하지 않되 기본 사용�
 
 - **ULG 자동 기능 승인 게이트: 통과.** 최종 전체 자동 회귀 결과는 `234 passed, 1 skipped`이다. skip 1건은 별도 MC 검증 로그 환경 변수가 없을 때 건너뛰도록 설계된 smoke 시험이다. 아래 `21/0`은 기능·범위·렌더 상태 판정이며 모든 성능 예산을 자동으로 강제하는 숫자는 아니다.
 - **최종 ULG 출시 승인: 보류.** 100회 native GUI soak는 통과했으나, 아래의 실제 사용자 조작과 패키지 화면 시험이 남아 있다.
-- **다중 형식 같은 창 비교: preview 통과.** 안정 채널 기본값은 계속 ULG 전용이며, 다중 형식은 명시적인 preview 정책에서만 노출한다.
+- **다중 형식 같은 창 비교: 기본 정책으로 승격.** `multiformat_stable`이 기본값이며 ULG, ROS1/ROS2, ArduPilot, CSV/JSON을 첫 화면에서 함께 노출한다. 형식별 의미론과 실제 사용자 조작 시험의 알려진 제한은 계속 추적한다.
 - **평가 항목 의미론 승인: 부분 통과.** 확인된 오판정 네 종류는 수정했지만, 남은 항목 때문에 평가 점수를 기체 상태의 최종 판정서로 사용해서는 안 된다.
 
 ### 7.1 ULG 자동·실화면 실행 결과
@@ -162,9 +162,9 @@ native 실행에서 데이터 렌더와 범위 반영을 함께 잰 2/3패널 �
 
 초기 러너에서 발생한 pan 범위 오차는 실제 휠 수명주기의 idle commit을 생략한 테스트 경쟁 조건이었다. 실제 앱과 동일하게 `_handle_wheel_idle_transition()`을 적용한 뒤 40회 재현 시험과 최종 100회 시험이 모두 통과했다. 중간의 검은 캡처는 내용 확인 없이 non-null QScreen 결과를 채택한 러너 문제였으며, 이후 캡처 품질 판정과 desktop/OpenGL framebuffer fallback을 적용해 제거했다.
 
-### 7.4 같은 창 다중 형식 preview
+### 7.4 같은 창 다중 형식
 
-`multiformat_preview` 정책에서 ULG, ArduPilot 계열 MAVLink TLOG, ROS1 bag, ROS2 bag을 한 세션에 동시에 적재한 실제 숫자 로그 시험은 통과했다.
+프리뷰 단계에서 ULG, ArduPilot 계열 MAVLink TLOG, ROS1 bag, ROS2 bag을 한 세션에 동시에 적재한 실제 숫자 로그 시험을 통과했으며, 현재 `multiformat_stable`이 기본 정책이다.
 
 - 한 패널에 네 원본의 곡선 네 개를 동시에 표시
 - 범례를 `[형식 · 원본] topic.signal`로 구분하고 중복 없는 기본 색을 할당

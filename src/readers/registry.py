@@ -245,7 +245,8 @@ def create_default_registry(
         else:
             # 기존 include_optional=False 호출부는 표 로그 reader를
             # core reader로 사용해 왔다. 명시적 테스트/내부 주입에서만
-            # 그 의미를 유지하고, 기본 앱은 ULG-only 정책을 사용한다.
+            # 그 의미를 유지한다. 기본 앱은 별도 인자 없이 다중 포맷
+            # 출시 정책을 사용한다.
             policy = FormatReleasePolicy(
                 name="legacy_core",
                 enabled_reader_ids=frozenset({"px4_ulog", "tabular"}),

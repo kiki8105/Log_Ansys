@@ -17,14 +17,26 @@ from engines.io_engine import (  # noqa: E402
 from readers.registry import create_default_registry  # noqa: E402
 from readers.release_policy import (  # noqa: E402
     FORMAT_POLICY_ENV,
+    MULTIFORMAT_STABLE,
     MULTIFORMAT_PREVIEW,
     ULG_STABLE,
     resolve_format_release_policy,
 )
 
 
-def test_release_policy_defaults_to_ulg_only(monkeypatch):
+def test_release_policy_defaults_to_multiformat(monkeypatch):
     monkeypatch.delenv(FORMAT_POLICY_ENV, raising=False)
+
+    registry = create_default_registry()
+
+    assert registry.release_policy.name == MULTIFORMAT_STABLE
+    assert set(registry.reader_ids) == {"px4_ulog", "tabular", "rosbag", "ardupilot"}
+    assert supported_source_summary(registry) == "ULG / ROS / ArduPilot / CSV·JSON"
+    assert {".ulg", ".bag", ".db3", ".mcap", ".bin", ".tlog", ".csv", ".json"} <= registry.extensions
+
+
+def test_ulg_only_policy_remains_available_as_explicit_opt_down(monkeypatch):
+    monkeypatch.setenv(FORMAT_POLICY_ENV, ULG_STABLE)
 
     registry = create_default_registry()
 
@@ -35,7 +47,7 @@ def test_release_policy_defaults_to_ulg_only(monkeypatch):
     assert log_file_dialog_filter(registry) == "Supported Log Files (*.ulg);;All Files (*)"
 
 
-def test_multiformat_preview_is_explicit_opt_in(monkeypatch):
+def test_multiformat_preview_value_remains_backward_compatible(monkeypatch):
     monkeypatch.setenv(FORMAT_POLICY_ENV, MULTIFORMAT_PREVIEW)
 
     registry = create_default_registry()

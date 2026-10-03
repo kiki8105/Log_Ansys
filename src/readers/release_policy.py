@@ -1,13 +1,13 @@
 """로그 형식을 실제 제품 UI에 노출하는 중앙 출시 정책.
 
-Reader 구현과 제품 출시 여부를 분리한다. ROS/ArduPilot/표 로그 reader는
-코드와 테스트에 계속 남겨 두되, ULG 수용 테스트가 완료되기 전에는
-기본 배포 UI에서 도달할 수 없게 한다.
+기본 배포는 PX4 ULog, ROS1/ROS2, ArduPilot 및 표 형식을 함께 노출한다.
+문제 격리나 ULG 전용 검증이 필요하면 프로그램 시작 전에 다음 환경 변수를
+설정해 범위를 축소할 수 있다::
 
-개발 미리보기는 프로그램 시작 전에 다음 환경 변수를 설정해 명시적으로
-활성화한다::
+    PX4_LOG_FORMAT_POLICY=ulg_stable
 
-    PX4_LOG_FORMAT_POLICY=multiformat_preview
+기존 ``multiformat_preview`` 값은 이전 실행 스크립트와의 호환을 위해 계속
+지원한다.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import Mapping
 
 FORMAT_POLICY_ENV = "PX4_LOG_FORMAT_POLICY"
 ULG_STABLE = "ulg_stable"
+MULTIFORMAT_STABLE = "multiformat_stable"
 MULTIFORMAT_PREVIEW = "multiformat_preview"
 
 _ALL_READER_IDS = frozenset({"px4_ulog", "tabular", "rosbag", "ardupilot"})
@@ -66,13 +67,19 @@ def resolve_format_release_policy(
     *,
     environ: Mapping[str, str] | None = None,
 ) -> FormatReleasePolicy:
-    """정책 이름을 결정한다. 오타/미정 값은 안전하게 ULG-only로 닫힌다."""
+    """정책 이름을 결정한다. 미지정 값은 다중 포맷, 오타는 ULG-only로 닫힌다."""
 
     source = os.environ if environ is None else environ
-    raw = value if value is not None else source.get(FORMAT_POLICY_ENV, ULG_STABLE)
-    normalized = str(raw or ULG_STABLE).strip().lower().replace("-", "_")
+    raw = value if value is not None else source.get(FORMAT_POLICY_ENV, MULTIFORMAT_STABLE)
+    normalized = str(raw or MULTIFORMAT_STABLE).strip().lower().replace("-", "_")
 
-    if normalized in {MULTIFORMAT_PREVIEW, "preview", "all"}:
+    if normalized in {MULTIFORMAT_STABLE, "multiformat", "all"}:
+        return FormatReleasePolicy(
+            name=MULTIFORMAT_STABLE,
+            enabled_reader_ids=_ALL_READER_IDS,
+        )
+
+    if normalized in {MULTIFORMAT_PREVIEW, "preview"}:
         preview = _ALL_READER_IDS - {"px4_ulog"}
         return FormatReleasePolicy(
             name=MULTIFORMAT_PREVIEW,
@@ -91,6 +98,7 @@ def resolve_format_release_policy(
 __all__ = [
     "FORMAT_POLICY_ENV",
     "FormatReleasePolicy",
+    "MULTIFORMAT_STABLE",
     "MULTIFORMAT_PREVIEW",
     "ULG_STABLE",
     "resolve_format_release_policy",

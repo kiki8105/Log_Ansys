@@ -24,6 +24,7 @@ from readers.ulog import ULogReader
 from readers.release_policy import (
     FORMAT_POLICY_ENV,
     FormatReleasePolicy,
+    MULTIFORMAT_STABLE,
     MULTIFORMAT_PREVIEW,
     ULG_STABLE,
     resolve_format_release_policy,
@@ -57,6 +58,7 @@ __all__ = [
     "FormatReleasePolicy",
     "LoadResult",
     "LogPath",
+    "MULTIFORMAT_STABLE",
     "MULTIFORMAT_PREVIEW",
     "ProbeResult",
     "ROSBagReader",

@@ -1,9 +1,8 @@
 # Log ansys
 
 Windows 데스크톱에서 비행 로그의 시계열, 2D/3D 경로와 자동 평가를 확인하는
-PySide6 기반 분석 도구입니다. 기본 채널은 PX4 ULog만 노출합니다. ULG 자동 기능
-게이트는 통과했지만 최종 출시 승인은 수동 화면 시험 대기 상태이며, ROS1/ROS2,
-ArduPilot DataFlash/MAVLink 및 표 형식 reader는 다중 포맷 프리뷰로 검증 중입니다.
+PySide6 기반 분석 도구입니다. 기본 실행에서 PX4 ULog, ROS1/ROS2,
+ArduPilot DataFlash/MAVLink 및 CSV/JSON 형식 reader를 함께 제공합니다.
 
 ## 빠른 시작
 
@@ -17,16 +16,16 @@ python -m pip install -r requirements.txt
 python src\main.py
 ```
 
-기본 실행은 자동 기능 검증을 통과한 `.ulg` 입력만 노출합니다. 개발 중인 교차 형식 적재와
-그래프 비교를 시험하려면 실행 전에 프리뷰 정책을 명시합니다.
+기본 실행은 PX4 ULG, ROS1 bag, ROS2 SQLite3/MCAP, ArduPilot DataFlash,
+MAVLink TLOG, CSV/JSON 계열을 같은 탐색·그래프 UI에 적재합니다. 문제 격리나
+ULG 전용 검증이 필요한 경우에만 실행 전에 정책을 축소합니다.
 
 ```powershell
-$env:PX4_LOG_FORMAT_POLICY = "multiformat_preview"
+$env:PX4_LOG_FORMAT_POLICY = "ulg_stable"
 python src\main.py
 ```
 
-프리뷰 정책은 PX4 ULG, ROS1 bag, ROS2 SQLite3/MCAP, ArduPilot DataFlash,
-MAVLink TLOG, CSV/JSON 계열을 같은 탐색·그래프 UI에 적재합니다. 각 로그의
+다중 포맷 모드에서 각 로그의
 `timestamp_sec`는 원점 대비 상대 초이며, 서로 다른 형식의 신호를 한 패널에
 겹칠 때 원본 로그를 범례로 구분합니다. PX4 자동 평가는 PX4 capability가 없는
 ROS/ArduPilot 로그에 적용하지 않습니다.
@@ -47,7 +46,7 @@ python scripts\validate_ulg_graph_acceptance.py --cache-cycles 3 `
   "C:\path\to\validation_A.ulg" "C:\path\to\validation_B.ulg"
 ```
 
-같은 창에서 PX4·ArduPilot·ROS 로그를 함께 여는 프리뷰 계약은 각 원본 경로를
+같은 창에서 PX4·ArduPilot·ROS 로그를 함께 여는 계약은 각 원본 경로를
 명시해 별도로 검증합니다. 원본 경로는 스크립트나 Git 추적 파일에 저장되지 않지만,
 검증 시 생성되는 ignored `runtime/` 로컬 보고서에는 재현성을 위해 기록됩니다.
 

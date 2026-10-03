@@ -10,8 +10,9 @@
 - 실행 진입점: `src/main.py`
 - GUI 기준본: `src/gui/main_window.py`
 - Windows 빌드 정의: `build.py`, `Log_ansys.spec`
-- 기본 출시 정책: `ulg_stable`
-- 다중 형식 시험 정책: `multiformat_preview`
+- 기본 출시 정책: `multiformat_stable`
+- ULG 전용 문제 격리 정책: `ulg_stable`
+- 이전 스크립트 호환 정책: `multiformat_preview`
 
 이 공개 이력은 회사 로고, 회사명, 특정 기체 치수, 운영 위치, 실제 비행 로그,
 로컬 캐시와 개인 경로를 포함하지 않는 정제된 스냅샷에서 시작한다.

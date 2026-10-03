@@ -16,9 +16,9 @@ import sys
 import time
 
 
-# The default product remains ULG-only.  This acceptance runner explicitly
-# opts into the development preview before reader modules are imported.
-os.environ.setdefault("PX4_LOG_FORMAT_POLICY", "multiformat_preview")
+# Pin the promoted multi-format policy before reader modules are imported so
+# an inherited ULG-only diagnostic environment cannot narrow this acceptance run.
+os.environ["PX4_LOG_FORMAT_POLICY"] = "multiformat_stable"
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("PX4_INTERACTIVE_FAST_RENDER_PREVIEW", "0")
 
@@ -38,7 +38,7 @@ from gui.main_window import (
     _metadata_from_load_result,
     _preprocess_loaded_dataset,
 )
-from readers.release_policy import FORMAT_POLICY_ENV, MULTIFORMAT_PREVIEW
+from readers.release_policy import FORMAT_POLICY_ENV, MULTIFORMAT_STABLE
 from storage.parquet_cache import ParquetCacheManager
 
 
@@ -302,7 +302,7 @@ def run(args) -> dict:
             if record["format_id"] != "px4_ulog"
         )
         checks = {
-            "explicit_preview_policy": os.environ.get(FORMAT_POLICY_ENV) == MULTIFORMAT_PREVIEW,
+            "multiformat_policy_active": os.environ.get(FORMAT_POLICY_ENV) == MULTIFORMAT_STABLE,
             "all_four_sources_loaded": len(window.loaded_datasets) == 4,
             "one_panel_four_curves": count_after_readd == 4,
             "different_sample_rates": len({record["selected_samples"] for record in records}) == 4,
