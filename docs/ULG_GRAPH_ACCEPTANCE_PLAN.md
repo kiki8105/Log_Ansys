@@ -40,6 +40,9 @@ ULG 그래프 기능은 아래 규칙을 만족해야 완료로 판정한다.
 | 2D-LARGE | 8천 점 초과 경로 | 표시 점 예산 이하이며 첫·끝·극값·급회전을 보존 | 자동 |
 | 3D-BASE | true OpenGL 경로 | East/North/Up 방향, 시작·끝, 회전·팬·줌·pick 정확 | 실화면 |
 | 3D-DND | X/Y/Z 직접 드롭 | 자동 생성 3D와 같은 좌표 방향과 형상 | 자동 |
+| 3D-MARKER | 비행체 마커 타입 전환 | Fixed Wing/Quadcopter/Helicopter/Rover 형상이 명확히 구분되고, 전환 후에도 현재 시간·위치·자세가 유지됨 | 자동+실화면 |
+| 3D-MARKER-AUTO | Auto 방향 추종 | 자세 신호가 있으면 자세를, 없으면 경로 접선을 사용하며 기수 방향과 상승·하강 pitch가 일치 | 자동+실화면 |
+| 3D-MARKER-LAYOUT | 마커 타입·배율 저장/복원 | 선택 타입·배율이 유지되고 구버전/손상 레이아웃은 Auto·1.0배로 안전하게 복구 | 자동 |
 | 3D-FALLBACK | OpenGL 미지원 | projected 3D로 자동 전환하고 조작 가능 | 자동 |
 | PERF | 1/2/3/6 패널 성능 | 아래 성능 예산 충족 | 계측+실화면 |
 | SOAK | 100회 줌/팬/reset/split/close | crash·검은 viewport·누수 없음 | 실화면 |
@@ -208,8 +211,9 @@ native 실행에서 데이터 렌더와 범위 반영을 함께 잰 2/3패널 �
 
 ### 7.6 최종 수동 승인 대기 항목
 
-다음 세 항목이 모두 통과해야 `ULG_STABLE` 완료로 판정한다.
+다음 네 항목이 모두 통과해야 `ULG_STABLE` 완료로 판정한다.
 
 1. 실제 마우스로 true OpenGL 3D 회전·팬·줌을 반복하고 context 안정성 확인
 2. 실제 휠 입력의 p95/p99 paint latency와 주관적 버벅임 확인
 3. packaged EXE를 Windows 100%/150% DPI에서 실행해 글자·범례·2D/3D 화면 확인
+4. 동일 3D Path에서 Auto/Fixed Wing/Quadcopter/Helicopter/Rover를 연속 전환하고, 마커 형상·기수 방향·배율·레이아웃 복원을 확인

@@ -30,6 +30,11 @@ python src\main.py
 겹칠 때 원본 로그를 범례로 구분합니다. PX4 자동 평가는 PX4 capability가 없는
 ROS/ArduPilot 로그에 적용하지 않습니다.
 
+3D Path의 비행체 마커는 그래프를 우클릭한 뒤
+`3D Path 설정 → 비행체 마커 타입`에서 Auto, Fixed Wing, Quadcopter,
+Helicopter, Rover 중 하나를 선택합니다. 타입과 마커 배율은 레이아웃에 함께
+저장되며, 자세 신호가 없는 로그에서는 현재 경로의 진행 방향을 따라 표시됩니다.
+
 ## 검증
 
 ```powershell

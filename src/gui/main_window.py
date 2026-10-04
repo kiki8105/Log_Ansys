@@ -10461,6 +10461,19 @@ class RotateDialog(QDialog):
 
 class AdvancedPlot(QWidget):
     _PROJECTED_3D_RIGHT_PAN_SCREEN_RATIO = 0.45
+    _TRUE_3D_VEHICLE_MARKER_LABELS = {
+        "auto": "Auto (Detected)",
+        "fixed_wing": "Fixed Wing",
+        "quadcopter": "Quadcopter",
+        "helicopter": "Helicopter",
+        "rover": "Rover",
+    }
+    _TRUE_3D_VEHICLE_MARKER_COLORS = {
+        "fixed_wing": "#20344A",
+        "quadcopter": "#0F766E",
+        "helicopter": "#6D28D9",
+        "rover": "#B45309",
+    }
 
     def __init__(self, main_window, workspace, parent_splitter=None):
         # 개별 그래프 패널 초기화. 사이드 컨트롤 패널, value overlay 라벨, _create_coarse_grid_plot_widget() 로 만든 PyQtGraph 위젯, 3D 뷰 핸들이 여기서 만들어집니다.
@@ -10651,6 +10664,12 @@ class AdvancedPlot(QWidget):
         self._true_3d_aircraft_ned_axes_color_array = None
         self._true_3d_aircraft_scale_base = None
         self._true_3d_aircraft_scale_factor = 1.0
+        # Per-plot vehicle marker selection. ``auto`` follows the loaded
+        # log's detected aircraft family while explicit choices are stable
+        # across redraws and layout save/restore.
+        self._true_3d_vehicle_marker_type = "auto"
+        self._true_3d_detected_vehicle_type = "unknown"
+        self._true_3d_axis_bounds = None
         self._true_3d_time_marker_item = None
         self._true_3d_time_marker_outer_item = None
         self._true_3d_time_marker_idx = None
@@ -11135,6 +11154,15 @@ class AdvancedPlot(QWidget):
             except Exception:
                 dialog_value_extras = None
 
+        if self.main_window is not None:
+            self.configure_true_3d_vehicle_marker(
+                detected_aircraft_type=self.main_window.loaded_aircraft_types.get(
+                    sx.get("file_name"),
+                    "Unknown",
+                ),
+                refresh=False,
+            )
+
         ok = self.render_3d_path(
             x3, y3, z3, title, timestamps=t, value_extras=dialog_value_extras,
         )
@@ -11152,6 +11180,7 @@ class AdvancedPlot(QWidget):
                 "line_style": self._3d_path_style.get("style", "solid"),
                 "line_width": float(self._3d_path_style.get("width", 2.6)),
             }
+            self._sync_3d_style_to_layout_spec()
         return ok
 
     def _show_curve_create_popup_and_render(self, uris):
@@ -11255,6 +11284,15 @@ class AdvancedPlot(QWidget):
                 except Exception:
                     drop_value_extras = None
 
+            if self.main_window is not None:
+                self.configure_true_3d_vehicle_marker(
+                    detected_aircraft_type=self.main_window.loaded_aircraft_types.get(
+                        file_name,
+                        "Unknown",
+                    ),
+                    refresh=False,
+                )
+
             ok = self.render_3d_path(
                 x3,
                 y3,
@@ -11279,6 +11317,7 @@ class AdvancedPlot(QWidget):
                 "line_style": self._3d_path_style.get("style", "solid"),
                 "line_width": float(self._3d_path_style.get("width", 2.6)),
             }
+            self._sync_3d_style_to_layout_spec()
             if PERF_DEBUG_ENABLED:
                 print(f"[DND][Plot] 3D path auto-rendered from drop: {file_name}|{topic_name} ({x_sig},{y_sig},{z_sig})")
             return True
@@ -13112,10 +13151,145 @@ class AdvancedPlot(QWidget):
             return c
         return np.repeat(c, int(count), axis=0)
 
-    @staticmethod
-    def _true_3d_aircraft_qcolor():
-        # 3D 비행체 마커 기본 색. return QColor("#20344A") 의 색을 바꾸면 항공기 본체 색이 바뀝니다.
-        return QColor("#20344A")
+    @classmethod
+    def _normalise_true_3d_vehicle_marker_type(cls, value, *, allow_auto=True):
+        key = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "auto": "auto",
+            "detected": "auto",
+            "automatic": "auto",
+            "fixedwing": "fixed_wing",
+            "fixed_wing": "fixed_wing",
+            "plane": "fixed_wing",
+            "airplane": "fixed_wing",
+            "multicopter": "quadcopter",
+            "multi_copter": "quadcopter",
+            "quad": "quadcopter",
+            "quadrotor": "quadcopter",
+            "quadcopter": "quadcopter",
+            "heli": "helicopter",
+            "helicopter": "helicopter",
+            "rotary_wing": "helicopter",
+            "rover": "rover",
+            "ground_rover": "rover",
+            "car": "rover",
+        }
+        normalised = aliases.get(key)
+        if normalised == "auto" and not allow_auto:
+            return None
+        return normalised
+
+    @classmethod
+    def _vehicle_marker_type_from_aircraft_label(cls, aircraft_type):
+        text = str(aircraft_type or "").strip().casefold()
+        # Resolve helicopters before the broad multicopter tokens because the
+        # literal word "helicopter" also contains "copter".
+        if any(token in text for token in ("helicopter", "heli", "rotary")):
+            return "helicopter"
+        if any(token in text for token in ("multi", "quad", "multirotor", "copter", "drone")):
+            return "quadcopter"
+        if any(token in text for token in ("rover", "ground", "car")):
+            return "rover"
+        if (
+            any(token in text for token in ("fixed", "airplane", "aeroplane", "arduplane"))
+            or text in {"fw", "plane"}
+        ):
+            return "fixed_wing"
+        # Preserve the unknown state so the UI can distinguish a real
+        # detection from the legacy fixed-wing visual fallback.
+        return "unknown"
+
+    def _effective_true_3d_vehicle_marker_type(self):
+        selected = self._normalise_true_3d_vehicle_marker_type(
+            self._true_3d_vehicle_marker_type,
+        ) or "auto"
+        if selected != "auto":
+            return selected
+        detected = self._normalise_true_3d_vehicle_marker_type(
+            self._true_3d_detected_vehicle_type,
+            allow_auto=False,
+        )
+        return detected or "fixed_wing"
+
+    def _true_3d_vehicle_marker_display_name(self):
+        effective = self._effective_true_3d_vehicle_marker_type()
+        label = self._TRUE_3D_VEHICLE_MARKER_LABELS.get(effective, "Fixed Wing")
+        if self._true_3d_vehicle_marker_type == "auto":
+            detected = self._normalise_true_3d_vehicle_marker_type(
+                self._true_3d_detected_vehicle_type,
+                allow_auto=False,
+            )
+            suffix = "Auto" if detected is not None else "Auto Fallback"
+            return f"{label} ({suffix})"
+        return label
+
+    def _true_3d_vehicle_auto_menu_label(self):
+        detected = self._normalise_true_3d_vehicle_marker_type(
+            self._true_3d_detected_vehicle_type,
+            allow_auto=False,
+        )
+        if detected is None:
+            return "Auto (Fallback: Fixed Wing)"
+        detected_label = self._TRUE_3D_VEHICLE_MARKER_LABELS.get(detected, "Fixed Wing")
+        return f"Auto (Detected: {detected_label})"
+
+    def configure_true_3d_vehicle_marker(
+        self,
+        *,
+        marker_type=None,
+        detected_aircraft_type=None,
+        scale_factor=None,
+        refresh=True,
+    ):
+        """Configure one plot's vehicle marker and optionally redraw it."""
+
+        # Resolve every supplied value before mutating the plot so malformed
+        # persisted layouts cannot leave a half-updated marker configuration.
+        next_detected = self._true_3d_detected_vehicle_type
+        if detected_aircraft_type is not None:
+            next_detected = self._vehicle_marker_type_from_aircraft_label(detected_aircraft_type)
+
+        next_selected = self._true_3d_vehicle_marker_type
+        if marker_type is not None:
+            next_selected = self._normalise_true_3d_vehicle_marker_type(marker_type) or "auto"
+
+        next_scale = float(self._true_3d_aircraft_scale_factor)
+        if scale_factor is not None:
+            try:
+                next_scale = float(scale_factor)
+            except (TypeError, ValueError):
+                next_scale = 1.0
+            if not np.isfinite(next_scale):
+                next_scale = 1.0
+            next_scale = max(0.1, min(10.0, round(next_scale, 1)))
+
+        changed = (
+            next_detected != self._true_3d_detected_vehicle_type
+            or next_selected != self._true_3d_vehicle_marker_type
+            or abs(next_scale - float(self._true_3d_aircraft_scale_factor)) > 1e-9
+        )
+        self._true_3d_detected_vehicle_type = next_detected
+        self._true_3d_vehicle_marker_type = next_selected
+        self._true_3d_aircraft_scale_factor = next_scale
+        if changed and refresh:
+            self._apply_true_3d_aircraft_scale()
+            self._update_true_3d_side_panel()
+        self._sync_3d_style_to_layout_spec()
+        return True
+
+    def change_true_3d_vehicle_marker_type(self, marker_type):
+        if not self.configure_true_3d_vehicle_marker(marker_type=marker_type, refresh=True):
+            return False
+        if self.main_window is not None:
+            self.main_window.statusBar().showMessage(
+                f"3D Vehicle Marker: {self._true_3d_vehicle_marker_display_name()}",
+                3000,
+            )
+        return True
+
+    def _true_3d_aircraft_qcolor(self):
+        vehicle_type = self._effective_true_3d_vehicle_marker_type()
+        return QColor(self._TRUE_3D_VEHICLE_MARKER_COLORS.get(vehicle_type, "#20344A"))
 
     def _true_3d_aircraft_scale_value(self):
         try:
@@ -13127,7 +13301,7 @@ class AdvancedPlot(QWidget):
             return None
         if not np.isfinite(scale_factor):
             scale_factor = 1.0
-        scale_factor = max(0.1, min(3.0, scale_factor))
+        scale_factor = max(0.1, min(10.0, scale_factor))
         return base_scale * scale_factor
 
     def _true_3d_aircraft_axis_scale_value(self):
@@ -13140,7 +13314,10 @@ class AdvancedPlot(QWidget):
         aircraft_scale = self._true_3d_aircraft_scale_value()
         if aircraft_scale is None:
             return False
-        self._true_3d_aircraft_body_segments = self._build_true_3d_aircraft_body_segments(aircraft_scale)
+        self._true_3d_aircraft_body_segments = self._build_true_3d_aircraft_body_segments(
+            aircraft_scale,
+            self._effective_true_3d_vehicle_marker_type(),
+        )
         axis_scale = self._true_3d_aircraft_axis_scale_value()
         if axis_scale is not None:
             self._true_3d_aircraft_ned_axes_segments = self._build_true_3d_aircraft_ned_axes_segments(axis_scale)
@@ -13182,8 +13359,7 @@ class AdvancedPlot(QWidget):
         )
         if not ok:
             return
-        self._true_3d_aircraft_scale_factor = max(0.1, min(10.0, round(float(value), 1)))
-        self._apply_true_3d_aircraft_scale()
+        self.configure_true_3d_vehicle_marker(scale_factor=value, refresh=True)
 
     @staticmethod
     def _default_nav_state_color_map():
@@ -13270,19 +13446,37 @@ class AdvancedPlot(QWidget):
         # 3D 우측 정보 패널의 텍스트를 모드 범례 또는 좌표 범위 안내로 갱신. 안내문 안의 "Coordinate Frame (Origin: 0,0,0)" / "Units: meters (m)" 등 한 줄 문자열을 바꾸면 안내 문구가 바뀝니다.
         if not hasattr(self, "_true_3d_axis_panel"):
             return
+        if x is not None and y is not None and z is not None:
+            self._true_3d_axis_bounds = (
+                float(np.min(x)), float(np.max(x)),
+                float(np.min(y)), float(np.max(y)),
+                float(np.min(z)), float(np.max(z)),
+            )
+        marker_color = self._true_3d_aircraft_qcolor().name()
+        marker_header = (
+            "<b>Vehicle Marker:</b> "
+            f"<span style='color:{marker_color}; font-weight:700;'>━━</span> "
+            f"{html_escape(self._true_3d_vehicle_marker_display_name())}"
+            "<br><span style='color:#64748B; font-weight:500;'>"
+            "우클릭 → 3D Path 설정에서 타입/크기 변경</span>"
+        )
         legend_html = self._build_true_3d_mode_legend_html() if self._true_3d_mode_coloring_active else ""
         if legend_html:
-            self._true_3d_axis_panel.setText(legend_html)
+            self._true_3d_axis_panel.setText(f"{marker_header}<br>{legend_html}")
         else:
-            if x is None or y is None or z is None:
-                return
-            self._true_3d_axis_panel.setText(
-                "Coordinate Frame (Origin: 0,0,0)\n"
-                "Units: meters (m)\n"
-                f"X (East):  {float(np.min(x)):.1f} .. {float(np.max(x)):.1f} m\n"
-                f"Y (North): {float(np.min(y)):.1f} .. {float(np.max(y)):.1f} m\n"
-                f"Z (Alt):   {float(np.min(z)):.1f} .. {float(np.max(z)):.1f} m"
-            )
+            bounds = self._true_3d_axis_bounds
+            if bounds is None:
+                self._true_3d_axis_panel.setText(marker_header)
+            else:
+                x_min, x_max, y_min, y_max, z_min, z_max = bounds
+                self._true_3d_axis_panel.setText(
+                    f"{marker_header}<br>"
+                    "<b>Coordinate Frame</b> (Origin: 0,0,0)<br>"
+                    "Units: meters (m)<br>"
+                    f"X (East):&nbsp;&nbsp;{x_min:.1f} .. {x_max:.1f} m<br>"
+                    f"Y (North): {y_min:.1f} .. {y_max:.1f} m<br>"
+                    f"Z (Alt):&nbsp;&nbsp;&nbsp;{z_min:.1f} .. {z_max:.1f} m"
+                )
         self._true_3d_axis_panel.adjustSize()
 
     def _build_true_3d_mode_segments_for_times(self, mode_info, target_times):
@@ -13364,90 +13558,189 @@ class AdvancedPlot(QWidget):
             segments.append({"start": int(start_idx), "end": int(len(mapped_states) - 1), "mode": int(current_mode)})
         return segments
 
-    @staticmethod
-    def _build_true_3d_aircraft_body_segments(scale):
+    @classmethod
+    def _build_true_3d_aircraft_body_segments(cls, scale, vehicle_type="fixed_wing"):
+        """Build detailed code-native wireframes in body-frame NED axes."""
+
         s = max(0.2, float(scale))
-        nose = np.array([1.02 * s, 0.00 * s, 0.00 * s], dtype=np.float64)
-        fuselage_front_l = np.array([0.84 * s, -0.10 * s, 0.00 * s], dtype=np.float64)
-        fuselage_front_r = np.array([0.84 * s, 0.10 * s, 0.00 * s], dtype=np.float64)
-        fuselage_mid_l = np.array([0.12 * s, -0.12 * s, 0.00 * s], dtype=np.float64)
-        fuselage_mid_r = np.array([0.12 * s, 0.12 * s, 0.00 * s], dtype=np.float64)
-        fuselage_rear_l = np.array([-0.82 * s, -0.08 * s, 0.00 * s], dtype=np.float64)
-        fuselage_rear_r = np.array([-0.82 * s, 0.08 * s, 0.00 * s], dtype=np.float64)
-        tail_end = np.array([-0.98 * s, 0.00 * s, 0.00 * s], dtype=np.float64)
-        wing_root_front_l = np.array([0.16 * s, -0.12 * s, 0.00 * s], dtype=np.float64)
-        wing_root_front_r = np.array([0.16 * s, 0.12 * s, 0.00 * s], dtype=np.float64)
-        wing_root_back_l = np.array([-0.08 * s, -0.12 * s, 0.00 * s], dtype=np.float64)
-        wing_root_back_r = np.array([-0.08 * s, 0.12 * s, 0.00 * s], dtype=np.float64)
-        wing_tip_front_l = np.array([0.16 * s, -1.08 * s, 0.00 * s], dtype=np.float64)
-        wing_tip_front_r = np.array([0.16 * s, 1.08 * s, 0.00 * s], dtype=np.float64)
-        wing_tip_back_l = np.array([-0.08 * s, -1.08 * s, 0.00 * s], dtype=np.float64)
-        wing_tip_back_r = np.array([-0.08 * s, 1.08 * s, 0.00 * s], dtype=np.float64)
-        tailplane_root_front_l = np.array([-0.70 * s, -0.08 * s, 0.00 * s], dtype=np.float64)
-        tailplane_root_front_r = np.array([-0.70 * s, 0.08 * s, 0.00 * s], dtype=np.float64)
-        tailplane_root_back_l = np.array([-0.86 * s, -0.08 * s, 0.00 * s], dtype=np.float64)
-        tailplane_root_back_r = np.array([-0.86 * s, 0.08 * s, 0.00 * s], dtype=np.float64)
-        tailplane_tip_front_l = np.array([-0.70 * s, -0.34 * s, 0.00 * s], dtype=np.float64)
-        tailplane_tip_front_r = np.array([-0.70 * s, 0.34 * s, 0.00 * s], dtype=np.float64)
-        tailplane_tip_back_l = np.array([-0.86 * s, -0.34 * s, 0.00 * s], dtype=np.float64)
-        tailplane_tip_back_r = np.array([-0.86 * s, 0.34 * s, 0.00 * s], dtype=np.float64)
-        side_front_top = np.array([0.84 * s, 0.00 * s, -0.12 * s], dtype=np.float64)
-        side_front_bottom = np.array([0.84 * s, 0.00 * s, 0.12 * s], dtype=np.float64)
-        side_mid_top = np.array([0.12 * s, 0.00 * s, -0.13 * s], dtype=np.float64)
-        side_mid_bottom = np.array([0.12 * s, 0.00 * s, 0.13 * s], dtype=np.float64)
-        side_rear_top = np.array([-0.82 * s, 0.00 * s, -0.09 * s], dtype=np.float64)
-        side_rear_bottom = np.array([-0.82 * s, 0.00 * s, 0.09 * s], dtype=np.float64)
-        fin_front_top = np.array([-0.72 * s, 0.00 * s, -0.42 * s], dtype=np.float64)
-        fin_back_top = np.array([-0.88 * s, 0.00 * s, -0.42 * s], dtype=np.float64)
-        fin_front_base = np.array([-0.72 * s, 0.00 * s, -0.09 * s], dtype=np.float64)
-        fin_back_base = np.array([-0.88 * s, 0.00 * s, -0.09 * s], dtype=np.float64)
-        return np.asarray(
-            [
-                nose, fuselage_front_l,
-                nose, fuselage_front_r,
-                fuselage_front_l, fuselage_mid_l,
-                fuselage_front_r, fuselage_mid_r,
-                fuselage_mid_l, fuselage_rear_l,
-                fuselage_mid_r, fuselage_rear_r,
-                fuselage_rear_l, tail_end,
-                fuselage_rear_r, tail_end,
-                fuselage_front_l, fuselage_front_r,
-                fuselage_mid_l, fuselage_mid_r,
-                fuselage_rear_l, fuselage_rear_r,
-                wing_root_front_l, wing_tip_front_l,
-                wing_tip_front_l, wing_tip_back_l,
-                wing_tip_back_l, wing_root_back_l,
-                wing_root_back_l, wing_root_front_l,
-                wing_root_front_r, wing_tip_front_r,
-                wing_tip_front_r, wing_tip_back_r,
-                wing_tip_back_r, wing_root_back_r,
-                wing_root_back_r, wing_root_front_r,
-                tailplane_root_front_l, tailplane_tip_front_l,
-                tailplane_tip_front_l, tailplane_tip_back_l,
-                tailplane_tip_back_l, tailplane_root_back_l,
-                tailplane_root_back_l, tailplane_root_front_l,
-                tailplane_root_front_r, tailplane_tip_front_r,
-                tailplane_tip_front_r, tailplane_tip_back_r,
-                tailplane_tip_back_r, tailplane_root_back_r,
-                tailplane_root_back_r, tailplane_root_front_r,
-                nose, side_front_top,
-                nose, side_front_bottom,
-                side_front_top, side_mid_top,
-                side_mid_top, side_rear_top,
-                side_rear_top, tail_end,
-                side_front_bottom, side_mid_bottom,
-                side_mid_bottom, side_rear_bottom,
-                side_rear_bottom, tail_end,
-                side_front_top, side_front_bottom,
-                side_mid_top, side_mid_bottom,
-                side_rear_top, side_rear_bottom,
-                fin_front_top, fin_back_top,
-                fin_back_top, fin_back_base,
-                fin_back_base, fin_front_base,
-                fin_front_base, fin_front_top,
-            ],
-            dtype=np.float32,
-        )
+        marker_type = cls._normalise_true_3d_vehicle_marker_type(
+            vehicle_type,
+            allow_auto=False,
+        ) or "fixed_wing"
+        segments = []
+
+        def point(raw):
+            return np.asarray(raw, dtype=np.float64) * s
+
+        def edge(a, b):
+            segments.extend((point(a), point(b)))
+
+        def polyline(points, *, closed=False):
+            pts = list(points)
+            for start, end in zip(pts, pts[1:]):
+                edge(start, end)
+            if closed and len(pts) > 2:
+                edge(pts[-1], pts[0])
+
+        def ring(center, radius_a, radius_b, plane="xy", count=16):
+            cx, cy, cz = center
+            pts = []
+            for idx in range(max(8, int(count))):
+                angle = (2.0 * math.pi * idx) / float(max(8, int(count)))
+                ca = math.cos(angle)
+                sa = math.sin(angle)
+                if plane == "yz":
+                    pts.append((cx, cy + radius_a * ca, cz + radius_b * sa))
+                elif plane == "xz":
+                    pts.append((cx + radius_a * ca, cy, cz + radius_b * sa))
+                else:
+                    pts.append((cx + radius_a * ca, cy + radius_b * sa, cz))
+            polyline(pts, closed=True)
+            return pts
+
+        def box(x_min, x_max, y_min, y_max, z_min, z_max):
+            vertices = [
+                (x_min, y_min, z_min), (x_max, y_min, z_min),
+                (x_max, y_max, z_min), (x_min, y_max, z_min),
+                (x_min, y_min, z_max), (x_max, y_min, z_max),
+                (x_max, y_max, z_max), (x_min, y_max, z_max),
+            ]
+            for a, b in (
+                (0, 1), (1, 2), (2, 3), (3, 0),
+                (4, 5), (5, 6), (6, 7), (7, 4),
+                (0, 4), (1, 5), (2, 6), (3, 7),
+            ):
+                edge(vertices[a], vertices[b])
+
+        if marker_type == "quadcopter":
+            box(-0.26, 0.30, -0.22, 0.22, -0.12, 0.16)
+            motor_centers = (
+                (0.68, 0.68, -0.08),
+                (0.68, -0.68, -0.08),
+                (-0.68, 0.68, -0.08),
+                (-0.68, -0.68, -0.08),
+            )
+            for mx, my, mz in motor_centers:
+                # Double arm and motor mast make the X frame readable from
+                # oblique angles; a 16-edge rotor ring remains smooth when
+                # the marker is enlarged.
+                edge((0.18 * np.sign(mx), 0.15 * np.sign(my), 0.0), (mx, my, mz))
+                edge((0.08 * np.sign(mx), 0.22 * np.sign(my), 0.08), (mx, my, mz + 0.08))
+                edge((mx, my, mz - 0.08), (mx, my, mz + 0.10))
+                ring((mx, my, mz - 0.10), 0.34, 0.34, "xy", 16)
+                ring((mx, my, mz), 0.11, 0.11, "xy", 10)
+            # Landing skids and forward chevron.
+            for side in (-1.0, 1.0):
+                edge((0.48, 0.34 * side, 0.38), (-0.48, 0.34 * side, 0.38))
+                edge((0.30, 0.23 * side, 0.12), (0.38, 0.34 * side, 0.38))
+                edge((-0.30, 0.23 * side, 0.12), (-0.38, 0.34 * side, 0.38))
+            polyline(((0.30, -0.18, -0.13), (0.54, 0.0, -0.13), (0.30, 0.18, -0.13)))
+
+        elif marker_type == "helicopter":
+            station_specs = (
+                (0.90, 0.04, 0.04),
+                (0.55, 0.28, 0.30),
+                (0.05, 0.36, 0.38),
+                (-0.50, 0.23, 0.25),
+            )
+            station_loops = []
+            for x_pos, radius_y, radius_z in station_specs:
+                loop = [
+                    (x_pos, radius_y * math.cos(theta), radius_z * math.sin(theta))
+                    for theta in np.linspace(0.0, 2.0 * math.pi, 8, endpoint=False)
+                ]
+                polyline(loop, closed=True)
+                station_loops.append(loop)
+            for first, second in zip(station_loops, station_loops[1:]):
+                for idx in range(0, 8, 2):
+                    edge(first[idx], second[idx])
+            tail_hub = (-1.48, 0.0, -0.03)
+            for anchor in station_loops[-1][::2]:
+                edge(anchor, tail_hub)
+            # Main and tail rotors, mast, stabilizer, and skids.
+            main_hub = (0.02, 0.0, -0.58)
+            edge((0.02, 0.0, -0.20), main_hub)
+            ring(main_hub, 1.16, 1.16, "xy", 24)
+            edge((1.18, 0.0, -0.58), (-1.14, 0.0, -0.58))
+            edge((0.02, -1.16, -0.58), (0.02, 1.16, -0.58))
+            ring(tail_hub, 0.31, 0.31, "yz", 16)
+            edge((-1.48, -0.31, -0.03), (-1.48, 0.31, -0.03))
+            edge((-1.48, 0.0, -0.34), (-1.48, 0.0, 0.28))
+            polyline(((-1.15, 0.0, -0.08), (-1.40, 0.0, -0.48), (-1.53, 0.0, -0.05)), closed=True)
+            for side in (-1.0, 1.0):
+                edge((0.58, 0.35 * side, 0.50), (-0.58, 0.35 * side, 0.50))
+                edge((0.38, 0.25 * side, 0.24), (0.45, 0.35 * side, 0.50))
+                edge((-0.34, 0.22 * side, 0.22), (-0.42, 0.35 * side, 0.50))
+            edge((-1.04, -0.36, -0.03), (-1.04, 0.36, -0.03))
+
+        elif marker_type == "rover":
+            box(-0.78, 0.78, -0.48, 0.48, -0.10, 0.25)
+            # Sloped cabin / roll cage with a lower hood at the front (+X).
+            polyline(((-0.38, -0.36, -0.10), (-0.20, -0.33, -0.55), (0.35, -0.33, -0.55), (0.55, -0.36, -0.10)))
+            polyline(((-0.38, 0.36, -0.10), (-0.20, 0.33, -0.55), (0.35, 0.33, -0.55), (0.55, 0.36, -0.10)))
+            for a, b in (
+                ((-0.20, -0.33, -0.55), (-0.20, 0.33, -0.55)),
+                ((0.35, -0.33, -0.55), (0.35, 0.33, -0.55)),
+                ((-0.38, -0.36, -0.10), (-0.38, 0.36, -0.10)),
+                ((0.55, -0.36, -0.10), (0.55, 0.36, -0.10)),
+            ):
+                edge(a, b)
+            for wx in (-0.52, 0.52):
+                for wy in (-0.57, 0.57):
+                    wheel = ring((wx, wy, 0.25), 0.29, 0.29, "xz", 18)
+                    ring((wx, wy, 0.25), 0.12, 0.12, "xz", 12)
+                    for idx in (0, 4, 9, 13):
+                        edge((wx, wy, 0.25), wheel[idx])
+            edge((0.79, -0.42, 0.05), (0.92, -0.42, 0.05))
+            edge((0.79, 0.42, 0.05), (0.92, 0.42, 0.05))
+            polyline(((0.78, -0.22, -0.18), (1.02, 0.0, -0.18), (0.78, 0.22, -0.18)))
+
+        else:  # fixed_wing
+            station_specs = (
+                (1.06, 0.03, 0.03),
+                (0.72, 0.13, 0.14),
+                (0.12, 0.16, 0.17),
+                (-0.64, 0.10, 0.11),
+                (-1.02, 0.02, 0.02),
+            )
+            station_loops = []
+            for x_pos, radius_y, radius_z in station_specs:
+                loop = [
+                    (x_pos, radius_y * math.cos(theta), radius_z * math.sin(theta))
+                    for theta in np.linspace(0.0, 2.0 * math.pi, 8, endpoint=False)
+                ]
+                polyline(loop, closed=True)
+                station_loops.append(loop)
+            for first, second in zip(station_loops, station_loops[1:]):
+                for idx in range(8):
+                    edge(first[idx], second[idx])
+
+            for side in (-1.0, 1.0):
+                wing = (
+                    (0.30, 0.12 * side, -0.02),
+                    (0.08, 1.24 * side, 0.01),
+                    (-0.20, 1.10 * side, 0.05),
+                    (-0.10, 0.12 * side, 0.05),
+                )
+                polyline(wing, closed=True)
+                edge(wing[0], wing[2])
+                edge(wing[1], wing[3])
+                tailplane = (
+                    (-0.70, 0.08 * side, -0.01),
+                    (-0.78, 0.48 * side, 0.01),
+                    (-0.96, 0.43 * side, 0.04),
+                    (-0.91, 0.07 * side, 0.04),
+                )
+                polyline(tailplane, closed=True)
+                edge(tailplane[0], tailplane[2])
+            polyline(((-0.68, 0.0, -0.08), (-0.82, 0.0, -0.56), (-1.01, 0.0, -0.09)), closed=True)
+            polyline(((0.45, -0.11, -0.13), (0.20, -0.15, -0.28), (-0.12, -0.14, -0.17)))
+            polyline(((0.45, 0.11, -0.13), (0.20, 0.15, -0.28), (-0.12, 0.14, -0.17)))
+            ring((1.08, 0.0, 0.0), 0.28, 0.28, "yz", 16)
+            edge((1.08, -0.28, 0.0), (1.08, 0.28, 0.0))
+            edge((1.08, 0.0, -0.28), (1.08, 0.0, 0.28))
+
+        return np.asarray(segments, dtype=np.float32).reshape(-1, 3)
 
     @staticmethod
     def _build_true_3d_aircraft_ned_axes_segments(scale):
@@ -13695,6 +13988,39 @@ class AdvancedPlot(QWidget):
             yaw if yaw is not None else 0.0,
         )
 
+    def _true_3d_fallback_attitude_at_idx(self, idx, *, points=None):
+        """Orient a marker along the path when no attitude topic exists."""
+
+        points = self._true_3d_points if points is None else points
+        if points is None or len(points) == 0:
+            return None
+        idx = max(0, min(len(points) - 1, int(idx)))
+        if len(points) == 1:
+            return (0.0, 0.0, 0.0)
+
+        before = idx
+        after = idx
+        delta = None
+        # Duplicate path samples are common during hover/landing. Search a
+        # small symmetric neighbourhood for a stable motion vector.
+        for radius in range(1, min(len(points), 16)):
+            before = max(0, idx - radius)
+            after = min(len(points) - 1, idx + radius)
+            candidate = np.asarray(points[after], dtype=np.float64) - np.asarray(
+                points[before], dtype=np.float64
+            )
+            if np.all(np.isfinite(candidate)) and float(np.linalg.norm(candidate)) > 1e-9:
+                delta = candidate
+                break
+        if delta is None:
+            return (0.0, 0.0, 0.0)
+
+        east, north, up = (float(delta[0]), float(delta[1]), float(delta[2]))
+        horizontal = math.hypot(east, north)
+        yaw = math.atan2(east, north) if horizontal > 1e-12 else 0.0
+        pitch = math.atan2(up, max(horizontal, 1e-12))
+        return (0.0, pitch, yaw)
+
     def _update_true_3d_aircraft_marker(self, idx, position_override=None, attitude_override=None):
         if (
             not self._true_3d_enabled
@@ -13707,6 +14033,8 @@ class AdvancedPlot(QWidget):
         if position_override is None and not (0 <= idx < len(self._true_3d_points)):
             return False
         attitude = attitude_override if attitude_override is not None else self._true_3d_attitude_triplet_at_idx(idx)
+        if attitude is None:
+            attitude = self._true_3d_fallback_attitude_at_idx(idx)
         if attitude is None:
             return False
         roll_rad, pitch_rad, yaw_rad = attitude
@@ -13726,7 +14054,7 @@ class AdvancedPlot(QWidget):
             self._true_3d_aircraft_item.setData(
                 pos=translated.astype(np.float32),
                 color=self._gl_rgba_from_qcolor(self._true_3d_aircraft_qcolor()),
-                width=2.6,
+                width=3.0,
                 antialias=True,
                 mode="lines",
             )
@@ -14134,6 +14462,10 @@ class AdvancedPlot(QWidget):
         self.layout_special_spec["line_color"] = self._3d_path_style["color"].name()
         self.layout_special_spec["line_style"] = self._3d_path_style.get("style", "solid")
         self.layout_special_spec["line_width"] = float(self._3d_path_style.get("width", 2.6))
+        self.layout_special_spec["vehicle_marker_type"] = self._true_3d_vehicle_marker_type
+        self.layout_special_spec["vehicle_marker_scale"] = float(
+            self._true_3d_aircraft_scale_factor
+        )
 
     def _apply_projected_3d_style(self):
         # 투영형 3D 경로(2D 평면 투영)의 펜 스타일 적용. style_map 의 키를 추가/수정하면 사용 가능한 선 종류가 바뀝니다.
@@ -16839,12 +17171,18 @@ class AdvancedPlot(QWidget):
         self._true_3d_time_marker_idx = nearest_idx
 
         attitude = self._true_3d_attitude_triplet_at_time(target_t)
+        marker_attitude = attitude
+        if marker_attitude is None:
+            marker_attitude = self._true_3d_fallback_attitude_at_idx(
+                nearest_idx,
+                points=points,
+            )
         aircraft_visible = False
         try:
             aircraft_visible = self._update_true_3d_aircraft_marker(
                 nearest_idx,
                 position_override=interp_point,
-                attitude_override=attitude,
+                attitude_override=marker_attitude,
             )
         except Exception:
             aircraft_visible = False
@@ -17026,6 +17364,7 @@ class AdvancedPlot(QWidget):
         self._true_3d_aircraft_ned_axes_segments = None
         self._true_3d_aircraft_ned_axes_color_array = None
         self._true_3d_aircraft_scale_base = None
+        self._true_3d_axis_bounds = None
         self._true_3d_time_marker_outer_item = None
         self._true_3d_time_marker_item = None
         self._true_3d_time_marker_idx = None
@@ -17325,47 +17664,50 @@ class AdvancedPlot(QWidget):
             view.addItem(self._true_3d_time_marker_item)
             self._true_3d_items.append(self._true_3d_time_marker_item)
 
-            att = self._3d_value_extras.get("attitude") if isinstance(self._3d_value_extras, dict) else None
-            if isinstance(att, dict) and att.get("available"):
-                self._true_3d_aircraft_scale_base = max(2.4, min(span_ref * 0.18, 48.0))
-                aircraft_scale = self._true_3d_aircraft_scale_value()
-                if aircraft_scale is None:
-                    aircraft_scale = float(self._true_3d_aircraft_scale_base)
-                self._true_3d_aircraft_body_segments = self._build_true_3d_aircraft_body_segments(aircraft_scale)
-                initial_aircraft = self._true_3d_aircraft_body_segments + self._true_3d_points[:1]
-                self._true_3d_aircraft_item = gl.GLLinePlotItem(
-                    pos=initial_aircraft.astype(np.float32),
-                    color=self._gl_rgba_from_qcolor(self._true_3d_aircraft_qcolor()),
-                    width=2.6,
-                    antialias=True,
-                    mode="lines",
-                )
-                try:
-                    self._true_3d_aircraft_item.setGLOptions("opaque")
-                except Exception:
-                    pass
-                view.addItem(self._true_3d_aircraft_item)
-                self._true_3d_items.append(self._true_3d_aircraft_item)
+            # Always provide a vehicle marker. When attitude data is absent,
+            # cursor updates orient it along the local path tangent.
+            self._true_3d_aircraft_scale_base = max(2.4, min(span_ref * 0.18, 48.0))
+            aircraft_scale = self._true_3d_aircraft_scale_value()
+            if aircraft_scale is None:
+                aircraft_scale = float(self._true_3d_aircraft_scale_base)
+            self._true_3d_aircraft_body_segments = self._build_true_3d_aircraft_body_segments(
+                aircraft_scale,
+                self._effective_true_3d_vehicle_marker_type(),
+            )
+            initial_aircraft = self._true_3d_aircraft_body_segments + self._true_3d_points[:1]
+            self._true_3d_aircraft_item = gl.GLLinePlotItem(
+                pos=initial_aircraft.astype(np.float32),
+                color=self._gl_rgba_from_qcolor(self._true_3d_aircraft_qcolor()),
+                width=3.0,
+                antialias=True,
+                mode="lines",
+            )
+            try:
+                self._true_3d_aircraft_item.setGLOptions("opaque")
+            except Exception:
+                pass
+            view.addItem(self._true_3d_aircraft_item)
+            self._true_3d_items.append(self._true_3d_aircraft_item)
 
-                aircraft_axis_scale = self._true_3d_aircraft_axis_scale_value()
-                if aircraft_axis_scale is None:
-                    aircraft_axis_scale = max(0.6, min(aircraft_scale * 0.25, 9.0))
-                self._true_3d_aircraft_ned_axes_segments = self._build_true_3d_aircraft_ned_axes_segments(aircraft_axis_scale)
-                self._true_3d_aircraft_ned_axes_color_array = self._build_true_3d_aircraft_ned_axes_colors()
-                initial_aircraft_axes = self._true_3d_aircraft_ned_axes_segments + self._true_3d_points[:1]
-                self._true_3d_aircraft_ned_axes_item = gl.GLLinePlotItem(
-                    pos=initial_aircraft_axes.astype(np.float32),
-                    color=np.asarray(self._true_3d_aircraft_ned_axes_color_array, dtype=np.float32),
-                    width=2.2,
-                    antialias=True,
-                    mode="lines",
-                )
-                try:
-                    self._true_3d_aircraft_ned_axes_item.setGLOptions("opaque")
-                except Exception:
-                    pass
-                view.addItem(self._true_3d_aircraft_ned_axes_item)
-                self._true_3d_items.append(self._true_3d_aircraft_ned_axes_item)
+            aircraft_axis_scale = self._true_3d_aircraft_axis_scale_value()
+            if aircraft_axis_scale is None:
+                aircraft_axis_scale = max(0.6, min(aircraft_scale * 0.25, 9.0))
+            self._true_3d_aircraft_ned_axes_segments = self._build_true_3d_aircraft_ned_axes_segments(aircraft_axis_scale)
+            self._true_3d_aircraft_ned_axes_color_array = self._build_true_3d_aircraft_ned_axes_colors()
+            initial_aircraft_axes = self._true_3d_aircraft_ned_axes_segments + self._true_3d_points[:1]
+            self._true_3d_aircraft_ned_axes_item = gl.GLLinePlotItem(
+                pos=initial_aircraft_axes.astype(np.float32),
+                color=np.asarray(self._true_3d_aircraft_ned_axes_color_array, dtype=np.float32),
+                width=2.2,
+                antialias=True,
+                mode="lines",
+            )
+            try:
+                self._true_3d_aircraft_ned_axes_item.setGLOptions("opaque")
+            except Exception:
+                pass
+            view.addItem(self._true_3d_aircraft_ned_axes_item)
+            self._true_3d_items.append(self._true_3d_aircraft_ned_axes_item)
 
             self.apply_theme_to_3d()
 
@@ -18944,7 +19286,9 @@ class AdvancedPlot(QWidget):
         path3d_style_actions = {}
         path3d_width_actions = {}
         path3d_mode_color_actions = {}
+        path3d_vehicle_actions = {}
         action_3d_path_color = None
+        action_3d_aircraft_scale = None
         if has_3d_path:
             path3d_menu = menu.addMenu("3D Path 설정")
             color_3d_menu = path3d_menu.addMenu("색상 변경 (Change Line Color)")
@@ -18976,9 +19320,21 @@ class AdvancedPlot(QWidget):
             ):
                 act = style_3d_menu.addAction(style_label)
                 path3d_style_actions[act] = style_key
-        action_3d_aircraft_scale = None
-        if self._true_3d_enabled and self._true_3d_aircraft_item is not None:
-            action_3d_aircraft_scale = menu.addAction("비행체 커서 크기 변경")
+            if self._true_3d_enabled:
+                vehicle_3d_menu = path3d_menu.addMenu("비행체 마커 타입 (Vehicle Marker)")
+                selected_type = self._true_3d_vehicle_marker_type
+                for marker_key, marker_label in self._TRUE_3D_VEHICLE_MARKER_LABELS.items():
+                    if marker_key == "auto":
+                        marker_label = self._true_3d_vehicle_auto_menu_label()
+                    act = vehicle_3d_menu.addAction(marker_label)
+                    act.setCheckable(True)
+                    act.setChecked(marker_key == selected_type)
+                    path3d_vehicle_actions[act] = marker_key
+                if self._true_3d_aircraft_item is not None:
+                    vehicle_3d_menu.addSeparator()
+                    action_3d_aircraft_scale = vehicle_3d_menu.addAction(
+                        "마커 크기 변경… (Marker Scale)"
+                    )
         menu.addSeparator()
         # 'Remove ALL curves' 와 다른 점: 그래프 제목(title)까지 함께 비움.
         # 패널을 빈 상태로 완전히 리셋해 새 분석에 재사용하기 좋도록.
@@ -19039,6 +19395,8 @@ class AdvancedPlot(QWidget):
             self.workspace.auto_fit_plot_heights()
         elif action_3d_aircraft_scale is not None and action == action_3d_aircraft_scale:
             self.change_true_3d_aircraft_scale_factor()
+        elif action in path3d_vehicle_actions:
+            self.change_true_3d_vehicle_marker_type(path3d_vehicle_actions[action])
         elif action_3d_path_color is not None and action == action_3d_path_color:
             self.change_3d_path_line_color()
         elif action in path3d_mode_color_actions:
@@ -35259,6 +35617,11 @@ class MainWindow(QMainWindow):
                     traceback.print_exc()
                     value_extras = None
 
+            plot.configure_true_3d_vehicle_marker(
+                detected_aircraft_type=self.loaded_aircraft_types.get(file_name, "Unknown"),
+                refresh=False,
+            )
+
             ok = plot.render_3d_path(
                 x,
                 y,
@@ -35282,6 +35645,7 @@ class MainWindow(QMainWindow):
                     "line_style": plot._3d_path_style.get("style", "solid"),
                     "line_width": float(plot._3d_path_style.get("width", 2.6)),
                 }
+                plot._sync_3d_style_to_layout_spec()
             return ok
         except Exception:
             traceback.print_exc()
@@ -36595,9 +36959,20 @@ class MainWindow(QMainWindow):
             line_color = special.get("line_color")
             line_style = special.get("line_style", "solid")
             line_width = special.get("line_width", 2.6)
+            vehicle_marker_type = special.get("vehicle_marker_type", "auto")
+            vehicle_marker_scale = special.get("vehicle_marker_scale", 1.0)
             dataset = self.loaded_datasets.get(file_name)
             if dataset and topic in dataset.topics:
                 try:
+                    plot.configure_true_3d_vehicle_marker(
+                        marker_type=vehicle_marker_type,
+                        detected_aircraft_type=self.loaded_aircraft_types.get(
+                            file_name,
+                            "Unknown",
+                        ),
+                        scale_factor=vehicle_marker_scale,
+                        refresh=False,
+                    )
                     plot.set_3d_path_style(color=line_color, style_key=line_style, width=line_width)
                     df = dataset.topics[topic].dataframe
                     t = None
@@ -36695,6 +37070,7 @@ class MainWindow(QMainWindow):
                             restored_special["line_style"] = plot._3d_path_style.get("style", "solid")
                             restored_special["line_width"] = float(plot._3d_path_style.get("width", 2.6))
                             plot.layout_special_spec = restored_special
+                            plot._sync_3d_style_to_layout_spec()
                         else:
                             missing_items.append("3D Flight Path")
                 except Exception:

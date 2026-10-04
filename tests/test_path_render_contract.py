@@ -37,11 +37,15 @@ class _CapturePlot:
         self.main_window = main_window
         self._true_3d_enabled = False
         self._3d_path_style = {"color": _ColorStub(), "style": "solid", "width": 2.0}
+        self._true_3d_vehicle_marker_type = "auto"
+        self._true_3d_aircraft_scale_factor = 1.0
         self.layout_special_spec = None
         self.rendered = None
+        self.vehicle_marker_config = None
 
     _parse_signal_uri = staticmethod(AdvancedPlot._parse_signal_uri)
     _signal_axis_role = staticmethod(AdvancedPlot._signal_axis_role)
+    _sync_3d_style_to_layout_spec = AdvancedPlot._sync_3d_style_to_layout_spec
 
     def render_3d_path(self, x, y, z, title, timestamps=None, value_extras=None):
         self.rendered = (
@@ -52,10 +56,15 @@ class _CapturePlot:
         )
         return True
 
+    def configure_true_3d_vehicle_marker(self, **kwargs):
+        self.vehicle_marker_config = dict(kwargs)
+        return True
+
 
 class _MainWindowStub:
     def __init__(self, file_name, dataset):
         self.loaded_datasets = {file_name: dataset}
+        self.loaded_aircraft_types = {file_name: "Fixed-Wing"}
 
     @staticmethod
     def _find_topic_by_prefixes(dataset, prefixes):
@@ -101,6 +110,13 @@ def _render_both_entry_points(dataset, topic_name, signals):
         file_name,
         dataset,
     )
+    assert drop_plot.vehicle_marker_config == {
+        "detected_aircraft_type": "Fixed-Wing",
+        "refresh": False,
+    }
+    assert auto_plot.vehicle_marker_config == drop_plot.vehicle_marker_config
+    assert drop_plot.layout_special_spec["vehicle_marker_type"] == "auto"
+    assert drop_plot.layout_special_spec["vehicle_marker_scale"] == 1.0
     return drop_plot.rendered, auto_plot.rendered
 
 
