@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from xml.etree import ElementTree
 
 
 APP_NAME = "Log ansys"
@@ -42,6 +43,15 @@ QT_MSVC_RUNTIME_FILES = (
     "VCRUNTIME140_1.dll",
 )
 
+PYMAVLINK_DIALECT_MODULES = (
+    "pymavlink.dialects.v10.all",
+    "pymavlink.dialects.v20.all",
+    "pymavlink.dialects.v10.ardupilotmega",
+    "pymavlink.dialects.v20.ardupilotmega",
+)
+PYMAVLINK_DEFINITION_DEST = "message_definitions/v1.0"
+PYMAVLINK_SCHEMA_DEST = "pymavlink/generator"
+
 
 def project_root() -> Path:
     return Path(__file__).resolve().parent
@@ -53,6 +63,56 @@ def workspace_root() -> Path:
 
 def module_available(module_name: str) -> bool:
     return importlib.util.find_spec(module_name) is not None
+
+
+def pymavlink_bundle_data(package_root: Path | None = None) -> list[tuple[str, str]]:
+    """Return the minimal data fallback needed by pymavlink dialect loading.
+
+    ``pymavlink.mavutil`` dynamically imports the selected dialect.  If that
+    import ever fails it regenerates the module from ``all.xml`` at runtime.
+    PyInstaller cannot infer those XML reads, and pymavlink resolves them two
+    levels above ``pymavlink/generator`` in a frozen app.  Follow the active
+    XML include graph instead of collecting the whole package data directory.
+    """
+    if package_root is None:
+        import pymavlink
+
+        package_root = Path(pymavlink.__file__).resolve().parent
+    else:
+        package_root = Path(package_root).resolve()
+
+    definitions_root = package_root / "message_definitions" / "v1.0"
+    pending = ["all.xml"]
+    required: dict[str, Path] = {}
+    while pending:
+        name = pending.pop()
+        if name in required:
+            continue
+        relative = Path(name)
+        if relative.name != name or relative.suffix.casefold() != ".xml":
+            raise SystemExit(f"[ERROR] Unsafe pymavlink dialect include: {name!r}")
+        source = definitions_root / relative
+        if not source.is_file():
+            raise SystemExit(f"[ERROR] Required pymavlink dialect definition is missing: {source}")
+        required[name] = source
+        try:
+            document = ElementTree.parse(source)
+        except (ElementTree.ParseError, OSError) as exc:
+            raise SystemExit(f"[ERROR] Invalid pymavlink dialect definition {source}: {exc}") from exc
+        for include in document.getroot().findall("include"):
+            include_name = (include.text or "").strip()
+            if include_name and include_name not in required:
+                pending.append(include_name)
+
+    resources = [
+        (str(required[name]), PYMAVLINK_DEFINITION_DEST)
+        for name in sorted(required)
+    ]
+    schema = package_root / "generator" / "mavschema.xsd"
+    if not schema.is_file():
+        raise SystemExit(f"[ERROR] Required pymavlink schema is missing: {schema}")
+    resources.append((str(schema), PYMAVLINK_SCHEMA_DEST))
+    return resources
 
 
 def check_dependencies(skip_optional: bool = False) -> None:
@@ -268,12 +328,16 @@ import sys
 
 from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 import PySide6
+import pymavlink
 
 block_cipher = None
 
 project_root = Path(SPECPATH).resolve()
 src_dir = project_root / "src"
 sys.path.insert(0, str(src_dir))
+sys.path.insert(0, str(project_root))
+
+from build import pymavlink_bundle_data
 
 
 def existing_data(rel_path: str, dest: str):
@@ -300,6 +364,7 @@ datas = []
 datas += existing_data("assets", "assets")
 datas += existing_data("config", "config")
 datas += existing_data("README.md", ".")
+datas += pymavlink_bundle_data(Path(pymavlink.__file__).resolve().parent)
 
 for package_name in ("PySide6", "pyqtgraph", "numpy", "scipy", "polars", "pyulog", "rosbags", "pymavlink", "PyYAML"):
     try:
@@ -332,8 +397,7 @@ hiddenimports += [
     "yaml",
     "pymavlink.DFReader",
     "pymavlink.mavutil",
-    "pymavlink.dialects.v10.ardupilotmega",
-    "pymavlink.dialects.v20.ardupilotmega",
+    *{PYMAVLINK_DIALECT_MODULES!r},
 ]
 hiddenimports = sorted(set(hiddenimports))
 
@@ -404,6 +468,10 @@ def verify_build(root: Path, onefile: bool) -> None:
         dist_dir / "config" / "advisor_registry.yaml",
         dist_dir / "config" / "parameter_recommendations.yaml",
     ]
+    required_runtime_files += [
+        dist_dir / destination / Path(source).name
+        for source, destination in pymavlink_bundle_data()
+    ]
     missing_runtime = [str(path) for path in required_runtime_files if not path.exists()]
     if missing_runtime:
         raise SystemExit(
@@ -412,7 +480,7 @@ def verify_build(root: Path, onefile: bool) -> None:
         )
 
     print(f"[OK] Onedir EXE created: {exe_path}")
-    print("[OK] Required config files included in bundle.")
+    print("[OK] Required config and pymavlink runtime data included in bundle.")
 
 
 def sanitized_pyinstaller_environment(

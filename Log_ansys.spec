@@ -8,12 +8,16 @@ import sys
 
 from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 import PySide6
+import pymavlink
 
 block_cipher = None
 
 project_root = Path(SPECPATH).resolve()
 src_dir = project_root / "src"
 sys.path.insert(0, str(src_dir))
+sys.path.insert(0, str(project_root))
+
+from build import pymavlink_bundle_data
 
 
 def existing_data(rel_path: str, dest: str):
@@ -40,6 +44,7 @@ datas = []
 datas += existing_data("assets", "assets")
 datas += existing_data("config", "config")
 datas += existing_data("README.md", ".")
+datas += pymavlink_bundle_data(Path(pymavlink.__file__).resolve().parent)
 
 for package_name in ("PySide6", "pyqtgraph", "numpy", "scipy", "polars", "pyulog", "rosbags", "pymavlink", "PyYAML"):
     try:
@@ -72,8 +77,7 @@ hiddenimports += [
     "yaml",
     "pymavlink.DFReader",
     "pymavlink.mavutil",
-    "pymavlink.dialects.v10.ardupilotmega",
-    "pymavlink.dialects.v20.ardupilotmega",
+    *('pymavlink.dialects.v10.all', 'pymavlink.dialects.v20.all', 'pymavlink.dialects.v10.ardupilotmega', 'pymavlink.dialects.v20.ardupilotmega'),
 ]
 hiddenimports = sorted(set(hiddenimports))
 

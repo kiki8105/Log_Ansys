@@ -58,6 +58,13 @@ python scripts\validate_mixed_format_workspace.py `
   --ros2 "C:\path\to\rosbag2.db3"
 ```
 
+핵심 9개 형식 변형의 실제 원본 존재와 probe, cold/warm 적재, 숫자
+신호, 혼합 workspace, 손상 파일 격리를 하나의 JSON 매트릭스로 검증하려면
+[다중 포맷 실로그 승인 게이트](docs/MULTIFORMAT_ACCEPTANCE_GATE.md)를 사용합니다. 실제 원본이
+없는 형식은 통과로 처리하지 않고 `missing_fixture`로 보고합니다. ROS 2 bag
+디렉터리/`metadata.yaml`과 `.tsv`, `.txt`, `.jsonl`, `.ndjson`은 reader 지원 대상이지만
+아직 이 핵심 9개 릴리스 게이트의 독립 승인 슬롯에 포함되지 않습니다.
+
 승인 항목과 정량 기준은 [ULG 그래프 승인 계획](docs/ULG_GRAPH_ACCEPTANCE_PLAN.md),
 reader·캐시 경계는 [다중 포맷 아키텍처](docs/MULTIFORMAT_ARCHITECTURE.md)를
 참조하십시오.

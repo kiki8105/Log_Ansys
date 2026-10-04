@@ -1,8 +1,11 @@
 # src/main.py
 
+import argparse
 import datetime
 import io
+import json
 import os
+import re
 import sys
 import traceback
 from pathlib import Path
@@ -226,6 +229,199 @@ def _run_smoke_test() -> int:
         return 1
 
 
+def _acceptance_numeric_summary(dataset, min_samples: int) -> dict:
+    """Return a dependency-light graphability summary for frozen load tests."""
+    import numpy as np
+
+    numeric_signal_count = 0
+    renderable_signal_count = 0
+    selected = None
+    for topic_name, topic in sorted(dataset.topics.items()):
+        frame = getattr(topic, "dataframe", None)
+        if frame is None or "timestamp_sec" not in frame.columns:
+            continue
+        try:
+            timestamps = np.asarray(frame["timestamp_sec"].to_numpy(), dtype=np.float64)
+        except (TypeError, ValueError):
+            continue
+        for signal_name in sorted(topic.signals):
+            if signal_name not in frame.columns:
+                continue
+            try:
+                values = np.asarray(frame[signal_name].to_numpy(), dtype=np.float64)
+            except (TypeError, ValueError):
+                continue
+            if timestamps.size != values.size:
+                continue
+            finite_count = int(np.count_nonzero(np.isfinite(timestamps) & np.isfinite(values)))
+            if finite_count == 0:
+                continue
+            numeric_signal_count += 1
+            if finite_count >= min_samples:
+                renderable_signal_count += 1
+                candidate = {
+                    "topic": topic_name,
+                    "signal": signal_name,
+                    "finite_samples": finite_count,
+                }
+                if selected is None or finite_count > selected["finite_samples"]:
+                    selected = candidate
+    return {
+        "topic_count": len(dataset.topics),
+        "numeric_signal_count": numeric_signal_count,
+        "renderable_signal_count": renderable_signal_count,
+        "selected": selected,
+    }
+
+
+def _acceptance_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _acceptance_output_collision(
+    report_path: Path,
+    temporary_path: Path,
+    cache_dir: Path,
+    sources: list[Path],
+) -> str | None:
+    """Reject acceptance outputs that could modify an input source."""
+
+    outputs = (
+        ("report", report_path, False),
+        ("temporary report", temporary_path, False),
+        ("cache directory", cache_dir, True),
+    )
+    for label, output, is_tree in outputs:
+        for source in sources:
+            if output == source:
+                return f"{label} collides with input source: {source}"
+            if source.is_dir() and _acceptance_is_relative_to(output, source):
+                return f"{label} would be created inside input source directory: {source}"
+            if is_tree and _acceptance_is_relative_to(source, output):
+                return f"input source would be inside {label}: {source}"
+
+    if report_path == cache_dir or temporary_path == cache_dir:
+        return "report path collides with cache directory"
+    if _acceptance_is_relative_to(report_path, cache_dir) or _acceptance_is_relative_to(
+        temporary_path, cache_dir
+    ):
+        return "report path would be created inside cache directory"
+    return None
+
+
+def _run_acceptance_load_test(argv=None) -> int:
+    """Load real fixtures inside the packaged process and write JSON evidence.
+
+    The normal Windows build has no console, so the report file is the stable
+    automation boundary.  No QApplication is created on this path.
+    """
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--acceptance-load-report", type=Path, required=True)
+    parser.add_argument("--acceptance-cache-dir", type=Path, required=True)
+    parser.add_argument("--acceptance-run-id", required=True)
+    parser.add_argument("--acceptance-load", type=Path, action="append", required=True)
+    parser.add_argument("--acceptance-min-samples", type=int, default=2)
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    report_path = args.acceptance_load_report.expanduser().resolve()
+    temporary_path = report_path.with_suffix(report_path.suffix + ".tmp")
+    cache_dir = args.acceptance_cache_dir.expanduser().resolve()
+    source_paths = [path.expanduser().resolve() for path in args.acceptance_load]
+    collision = _acceptance_output_collision(
+        report_path,
+        temporary_path,
+        cache_dir,
+        source_paths,
+    )
+    if collision is not None:
+        print(f"[ACCEPTANCE] FAIL - {collision}", file=sys.stderr)
+        return 1
+    if report_path.exists() or temporary_path.exists():
+        print(
+            "[ACCEPTANCE] FAIL - refusing to reuse an existing report or temporary path",
+            file=sys.stderr,
+        )
+        return 1
+    if cache_dir.exists():
+        print(
+            "[ACCEPTANCE] FAIL - acceptance cache directory must be unique and absent",
+            file=sys.stderr,
+        )
+        return 1
+
+    report = {
+        "schema_version": 1,
+        "run_id": args.acceptance_run_id,
+        "status": "fail",
+        "frozen": bool(getattr(sys, "frozen", False)),
+        "executable": sys.executable,
+        "inputs": [],
+    }
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", args.acceptance_run_id):
+        report["error"] = "--acceptance-run-id has an invalid format"
+    elif args.acceptance_min_samples < 2:
+        report["error"] = "--acceptance-min-samples must be at least 2"
+    else:
+        try:
+            os.environ["PX4_LOG_FORMAT_POLICY"] = "multiformat_stable"
+            from engines.io_engine import LogIOEngine
+            from storage.parquet_cache import ParquetCacheManager
+
+            engine = LogIOEngine(
+                cache_mgr=ParquetCacheManager(
+                    cache_dir=str(cache_dir)
+                )
+            )
+            for path in source_paths:
+                item = {"path": str(path), "status": "fail"}
+                try:
+                    reader, probe = engine.detect(str(path))
+                    result = engine.load_result(str(path))
+                    numeric = _acceptance_numeric_summary(
+                        result.dataset,
+                        args.acceptance_min_samples,
+                    )
+                    passed = numeric["renderable_signal_count"] > 0
+                    item.update(
+                        {
+                            "status": "pass" if passed else "fail",
+                            "reader_id": reader.id,
+                            "probe_format_id": probe.format_id,
+                            "probe_confidence": probe.confidence,
+                            "format_id": result.format_id,
+                            "load_type": engine.last_load_info.get("load_type"),
+                            **numeric,
+                        }
+                    )
+                    if not passed:
+                        item["error"] = (
+                            "no signal has the minimum finite timestamp/value sample count"
+                        )
+                except Exception as exc:
+                    item["error"] = f"{type(exc).__name__}: {exc}"
+                report["inputs"].append(item)
+            report["status"] = (
+                "pass"
+                if report["inputs"]
+                and all(item["status"] == "pass" for item in report["inputs"])
+                else "fail"
+            )
+        except Exception as exc:
+            report["error"] = f"{type(exc).__name__}: {exc}"
+
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    temporary_path.replace(report_path)
+    return 0 if report.get("status") == "pass" else 1
+
+
 def main():
     # (2026-05-28) 가장 먼저 글로벌 예외 핸들러 설치 — QApplication 생성 전 에러도 잡힘.
     _install_global_excepthook()
@@ -233,6 +429,12 @@ def main():
     # 빌드 검증용 smoke test 분기. UI 없이 import 만 확인.
     if "--smoke-test" in sys.argv:
         sys.exit(_run_smoke_test())
+
+    # Release acceptance path used by scripts/validate_format_acceptance.py.
+    # It must run before QApplication so packaged CI can verify actual parser
+    # dependencies without opening or automating the desktop window.
+    if "--acceptance-load-report" in sys.argv:
+        sys.exit(_run_acceptance_load_test())
 
     from PySide6.QtCore import Qt, QTimer
     from PySide6.QtWidgets import QApplication

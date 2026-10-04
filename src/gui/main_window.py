@@ -2,6 +2,7 @@
 
 import sys
 import os
+import hashlib
 import time
 import json
 import csv
@@ -9,6 +10,7 @@ import random
 import re
 import zipfile
 import traceback
+import threading
 from html import escape as html_escape
 import numpy as np
 import polars as pl
@@ -1069,6 +1071,59 @@ _SOURCE_FORMAT_LABELS = {
 }
 
 
+def _canonical_source_identity(source_path):
+    """Return a stable, case-normalized identity for a local log source.
+
+    UI labels intentionally remain basename-oriented, but duplicate detection
+    must use the complete file/folder location.  ``resolve(strict=False)``
+    also normalizes relative paths without requiring the source to still exist
+    (useful while restoring layouts and in synthetic tests).
+    """
+
+    raw_path = str(source_path or "").strip()
+    if not raw_path:
+        return ""
+    try:
+        normalized = str(Path(raw_path).expanduser().resolve(strict=False))
+    except Exception:
+        normalized = os.path.abspath(os.path.normpath(raw_path))
+    return os.path.normcase(os.path.normpath(normalized))
+
+
+def _source_layout_token(source_id):
+    """Return an opaque layout reference without serializing a local path."""
+
+    canonical_id = _canonical_source_identity(source_id)
+    if not canonical_id:
+        return ""
+    payload = f"log-ansys-layout-source-v1\0{canonical_id}".encode("utf-8")
+    return f"src-v1:{hashlib.sha256(payload).hexdigest()}"
+
+
+def _collision_source_key(filename, source_id, existing_keys):
+    """Build a deterministic URI-safe key when a basename is already used."""
+
+    filename = str(filename or "source").strip() or "source"
+    digest = hashlib.sha256(str(source_id or filename).encode("utf-8")).hexdigest()[:8]
+    try:
+        qualifier = Path(str(source_id or "")).parent.name.strip()
+    except Exception:
+        qualifier = ""
+    # Windows source paths cannot contain '|', but replacing it also keeps
+    # signal URIs parseable for layouts created on POSIX systems.
+    qualifier = qualifier.replace("|", "¦")
+    base_key = f"{filename} [{qualifier or digest}]"
+    if base_key in set(existing_keys or ()):
+        base_key = f"{filename} [{qualifier or 'source'} · {digest}]"
+    candidate = base_key
+    suffix = 2
+    existing = set(existing_keys or ())
+    while candidate in existing:
+        candidate = f"{base_key}-{suffix}"
+        suffix += 1
+    return candidate
+
+
 def _source_qualified_legend_name(file_name, dataset, topic_name, signal_name):
     """Return an unambiguous legend label for cross-log overlays.
 
@@ -1082,7 +1137,14 @@ def _source_qualified_legend_name(file_name, dataset, topic_name, signal_name):
         source_format,
         "Custom" if source_format == "custom_series" else source_format,
     )
-    origin = os.path.basename(str(file_name or getattr(dataset, "source_path", "") or "source"))
+    source_path = str(getattr(dataset, "source_path", "") or "")
+    origin = os.path.basename(os.path.normpath(source_path)) if source_path else ""
+    origin = origin or os.path.basename(str(file_name or "source"))
+    # A collision key differs from the original basename.  Keep the normal
+    # single-log label unchanged, while reusing the collision key's readable
+    # folder qualifier (and hash only when needed) to keep legends unique.
+    if str(file_name or "") != origin:
+        origin = str(file_name or origin)
     return f"[{source_label} · {origin}] {topic_name}.{signal_name}"
 
 
@@ -1126,16 +1188,41 @@ def _metadata_from_load_result(load_result):
 
 
 class LogLoadWorker(QObject):
+    """Load log files without exposing partially processed datasets.
+
+    Cancellation is cooperative.  ``LogIOEngine.load_result`` and the PX4
+    preprocessing/evaluation helpers currently have no interruption callback,
+    so an in-flight call is allowed to return.  The worker then discards that
+    result, emits no ``fileLoaded`` signal for it, and skips every remaining
+    file.  This avoids unsafe QThread termination while keeping the UI state
+    transactional at the dataset commit boundary.
+    """
+
     progressChanged = Signal(object)
     fileLoaded = Signal(object)
     finished = Signal(object)
 
-    def __init__(self, file_paths, existing_names=None):
+    def __init__(self, file_paths, existing_names=None, existing_source_ids=None):
         # 백그라운드 로그 로딩 워커 초기화. 별도 스레드에서 로그 파일을 읽어
         # 진행률 시그널을 메인 윈도우 진행 패널에 전달합니다. 보통 수정 X.
         super().__init__()
         self.file_paths = list(file_paths or [])
+        # ``existing_names`` is retained for callers compiled against the old
+        # constructor.  Duplicate safety now relies on canonical full-source
+        # identities so equal basenames in different folders are permitted.
         self.existing_names = set(existing_names or [])
+        self.existing_source_ids = set(existing_source_ids or [])
+        # A queued Qt slot cannot run while ``load_result`` is blocking the
+        # worker event loop.  threading.Event is therefore intentionally set
+        # directly from the GUI thread and read at explicit safe boundaries.
+        self._cancel_event = threading.Event()
+
+    def request_cancel(self):
+        """Request cancellation at the next safe processing boundary."""
+        self._cancel_event.set()
+
+    def is_cancel_requested(self):
+        return self._cancel_event.is_set()
 
     def _emit_progress(self, processed_before, total, file_path, stage, stage_percent):
         # 좌측 상단 진행 패널에 표시될 진행률 정보를 시그널로 emit. dict 의
@@ -1155,12 +1242,14 @@ class LogLoadWorker(QObject):
 
     def run(self):
         io_engine = LogIOEngine()
-        loaded_count = 0
+        emitted_count = 0
         skipped_missing = []
         skipped_duplicate = []
         failed = []
         candidates = []
-        seen_names = set(self.existing_names)
+        seen_source_ids = set(self.existing_source_ids)
+        cancelled = False
+        cancelled_file_path = ""
 
         for file_path in self.file_paths:
             if not file_path or not os.path.exists(file_path):
@@ -1168,27 +1257,40 @@ class LogLoadWorker(QObject):
                     skipped_missing.append(file_path)
                 continue
             filename = os.path.basename(os.path.normpath(file_path))
-            if filename in seen_names:
+            source_id = _canonical_source_identity(file_path)
+            if source_id and source_id in seen_source_ids:
                 skipped_duplicate.append(filename)
                 continue
-            seen_names.add(filename)
-            candidates.append(file_path)
+            if source_id:
+                seen_source_ids.add(source_id)
+            candidates.append((file_path, source_id))
 
         total = len(candidates)
         if total <= 0:
-            self.finished.emit({
-                "loaded_count": 0,
+            summary = {
+                "emitted_count": 0,
                 "skipped_missing": skipped_missing,
                 "skipped_duplicate": skipped_duplicate,
                 "failed": failed,
-            })
+            }
+            if self.is_cancel_requested():
+                summary.update({"cancelled": True, "cancelled_file_path": ""})
+            self.finished.emit(summary)
             return
 
-        for processed_before, file_path in enumerate(candidates):
+        for processed_before, (file_path, source_id) in enumerate(candidates):
+            if self.is_cancel_requested():
+                cancelled = True
+                cancelled_file_path = file_path
+                break
             filename = os.path.basename(os.path.normpath(file_path))
             try:
                 self._emit_progress(processed_before, total, file_path, "Format detection / cache load", 5.0)
                 load_result = io_engine.load_result(file_path)
+                if self.is_cancel_requested():
+                    cancelled = True
+                    cancelled_file_path = file_path
+                    break
                 dataset = load_result.dataset
                 if not dataset:
                     failed.append({"file_path": file_path, "error": "dataset load returned None"})
@@ -1205,8 +1307,16 @@ class LogLoadWorker(QObject):
                 if is_px4:
                     self._emit_progress(processed_before, total, file_path, "PX4 dataset preprocessing", 60.0)
                     _preprocess_loaded_dataset(dataset)
+                    if self.is_cancel_requested():
+                        cancelled = True
+                        cancelled_file_path = file_path
+                        break
                     self._emit_progress(processed_before, total, file_path, "Aircraft type detection", 75.0)
                     aircraft_type = _detect_aircraft_type_for_dataset(dataset)
+                    if self.is_cancel_requested():
+                        cancelled = True
+                        cancelled_file_path = file_path
+                        break
                     self._emit_progress(processed_before, total, file_path, "Metadata / evaluation", 85.0)
                     metadata = _extract_log_metadata_for_dataset(
                         file_path,
@@ -1220,29 +1330,44 @@ class LogLoadWorker(QObject):
                     aircraft_type = _SOURCE_FORMAT_LABELS.get(load_result.format_id, load_result.format_id)
                     metadata = _metadata_from_load_result(load_result)
 
+                if self.is_cancel_requested():
+                    cancelled = True
+                    cancelled_file_path = file_path
+                    break
                 self._emit_progress(processed_before, total, file_path, "Applying to UI", 95.0)
                 self.fileLoaded.emit({
                     "file_path": file_path,
                     "filename": filename,
+                    "source_id": source_id,
                     "dataset": dataset,
                     "aircraft_type": aircraft_type,
                     "metadata": metadata,
                     "format_id": load_result.format_id,
                 })
-                loaded_count += 1
+                emitted_count += 1
                 self._emit_progress(processed_before, total, file_path, "Complete", 100.0)
             except Exception as e:
+                if self.is_cancel_requested():
+                    cancelled = True
+                    cancelled_file_path = file_path
+                    break
                 failed.append({"file_path": file_path, "error": str(e)})
                 print(f"\n[GUI][Worker] 로그 로드 오류: {file_path} | {e}")
                 traceback.print_exc()
                 self._emit_progress(processed_before, total, file_path, "Load failed", 100.0)
 
-        self.finished.emit({
-            "loaded_count": loaded_count,
+        summary = {
+            "emitted_count": emitted_count,
             "skipped_missing": skipped_missing,
             "skipped_duplicate": skipped_duplicate,
             "failed": failed,
-        })
+        }
+        if cancelled or self.is_cancel_requested():
+            summary.update({
+                "cancelled": True,
+                "cancelled_file_path": cancelled_file_path,
+            })
+        self.finished.emit(summary)
 
 class DraggableTreeView(QTreeView):
     ROLE_FILE_NAME = Qt.UserRole + 2
@@ -28347,6 +28472,11 @@ class MainWindow(QMainWindow):
         self.loaded_datasets = {}
         self.loaded_aircraft_types = {}
         self.loaded_log_metadata = {}
+        # Public analysis maps retain their historical human-readable keys
+        # (normally the basename).  These companion maps provide a stable,
+        # full-path identity and make same-basename sources coexist safely.
+        self.loaded_source_ids = {}
+        self.loaded_source_paths = {}
         self.active_analysis_log = None
         self.log_info_dialog = None
         self.custom_series_defs = {}
@@ -28366,6 +28496,13 @@ class MainWindow(QMainWindow):
         self._log_load_worker = None
         self._log_load_active = False
         self._log_load_mark_path = None
+        self._log_load_cancel_requested = False
+        self._close_when_log_load_finishes = False
+        self._closing_requested = False
+        self._log_load_committed_count = 0
+        self._log_load_rejected_count = 0
+        self._log_load_apply_failures = []
+        self._last_log_load_summary = None
 
         pg.setConfigOption('background', '#1e1e1e')
         pg.setConfigOption('foreground', '#aaaaaa')
@@ -28500,8 +28637,19 @@ class MainWindow(QMainWindow):
             " border-radius: 2px;"
             "}"
         )
+        self.upload_progress_cancel_button = QPushButton("취소")
+        self.upload_progress_cancel_button.setObjectName("uploadProgressCancelButton")
+        self.upload_progress_cancel_button.setToolTip(
+            "현재 파일 읽기가 끝나는 즉시 결과를 폐기하고 남은 로그 로딩을 중단합니다."
+        )
+        self.upload_progress_cancel_button.clicked.connect(self.cancel_log_load)
         upload_progress_layout.addWidget(self.upload_progress_file_label)
-        upload_progress_layout.addWidget(self.upload_progress_bar)
+        upload_progress_row = QHBoxLayout()
+        upload_progress_row.setContentsMargins(0, 0, 0, 0)
+        upload_progress_row.setSpacing(4)
+        upload_progress_row.addWidget(self.upload_progress_bar, 1)
+        upload_progress_row.addWidget(self.upload_progress_cancel_button)
+        upload_progress_layout.addLayout(upload_progress_row)
         self.upload_progress_panel.hide()
 
         self.tree_search_input = QLineEdit()
@@ -30805,7 +30953,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("현재 그래프의 데이터 포인트를 초기화했습니다.", 3000)
 
     def delete_everything(self):
-        # App → Delete Everything 메뉴 — 로드된 모든 로그/그래프/탭을 통째로 초기화. "Delete Everything" / "모든 그래프와 로드된 데이터를 초기화할까요?" / setText("Date(ulg) Upload\n(Multiple choices available)") / showMessage 의 "전체 데이터가 초기화되었습니다." 문자열을 바꾸면 안내가 바뀝니다.
+        # App → Delete Everything 메뉴 — 로드된 모든 로그/그래프/탭을 통째로 초기화.
         answer = QMessageBox.question(
             self,
             "Delete Everything",
@@ -30816,9 +30964,18 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.Yes:
             return
 
+        load_was_active = self._log_load_thread is not None or self._log_load_active
+        if load_was_active:
+            # Establish the commit barrier before clearing any visible state.
+            # A fileLoaded event may already be queued on the GUI thread.
+            if not self.cancel_log_load():
+                self._log_load_cancel_requested = True
+
         self.loaded_datasets.clear()
         self.loaded_aircraft_types.clear()
         self.loaded_log_metadata.clear()
+        self.loaded_source_ids.clear()
+        self.loaded_source_paths.clear()
         self.active_analysis_log = None
         self.custom_series_defs.clear()
         self._refresh_workspace_tab_log_colors()
@@ -30826,6 +30983,9 @@ class MainWindow(QMainWindow):
         self.tree_model.clear()
         self.tree_view.setHeaderHidden(True)
         self.last_active_plot = None
+        self._log_load_committed_count = 0
+        self._log_load_rejected_count = 0
+        self._log_load_apply_failures = []
         if self.log_info_dialog is not None:
             self.log_info_dialog.close()
             self.log_info_dialog.deleteLater()
@@ -30839,8 +30999,13 @@ class MainWindow(QMainWindow):
         self.workspace_count = 0
         self._update_right_panel_state()
         self._refresh_custom_series_list()
-        self.file_drop_widget.setText("Date(ulg) Upload\n(Multiple choices available)")
-        self.statusBar().showMessage("전체 데이터가 초기화되었습니다.", 4000)
+        self.file_drop_widget.setText(self.file_drop_widget.idle_text())
+        self.statusBar().showMessage(
+            "전체 데이터가 초기화되었으며 진행 중인 로그 로딩을 취소합니다."
+            if load_was_active
+            else "전체 데이터가 초기화되었습니다.",
+            4000,
+        )
 
     @staticmethod
     def _metadata_value_to_text(value):
@@ -30883,6 +31048,121 @@ class MainWindow(QMainWindow):
         self.log_info_dialog.raise_()
         self.log_info_dialog.activateWindow()
 
+    def _loaded_source_identity_set(self):
+        """Return identities for loaded sources, including legacy entries."""
+
+        identities = {value for value in self.loaded_source_ids.values() if value}
+        for source_key, dataset in self.loaded_datasets.items():
+            if self.loaded_source_ids.get(source_key):
+                continue
+            source_path = str(getattr(dataset, "source_path", "") or "")
+            source_id = _canonical_source_identity(source_path)
+            if source_id:
+                identities.add(source_id)
+        return identities
+
+    def _allocate_loaded_source_key(self, filename, source_id):
+        """Preserve the basename key unless it collides in this session."""
+
+        filename = str(filename or "").strip()
+        if filename and filename not in self.loaded_datasets:
+            return filename
+        return _collision_source_key(filename, source_id, self.loaded_datasets.keys())
+
+    def _source_ui_name(self, source_key):
+        """Return a readable label without exposing the internal hash key."""
+
+        source_key = str(source_key or "")
+        source_path = str(self.loaded_source_paths.get(source_key, "") or "")
+        dataset = self.loaded_datasets.get(source_key)
+        if not source_path and dataset is not None:
+            source_path = str(getattr(dataset, "source_path", "") or "")
+        basename = os.path.basename(os.path.normpath(source_path)) if source_path else ""
+        basename = basename or source_key
+        if source_key == basename:
+            return basename
+        return source_key
+
+    def _resolve_layout_source_key(
+        self,
+        file_name,
+        source_token="",
+        source_id="",
+        source_path="",
+    ):
+        """Resolve both legacy basename layouts and identity-aware layouts."""
+
+        file_name = str(file_name or "")
+        target_token = str(source_token or "").strip()
+        if target_token:
+            for source_key, loaded_id in self.loaded_source_ids.items():
+                if (
+                    source_key in self.loaded_datasets
+                    and _source_layout_token(loaded_id) == target_token
+                ):
+                    return source_key
+            # An identity-bearing layout is authoritative.  Falling through
+            # to a coincidentally equal basename could plot the wrong flight.
+            return None
+
+        # Transitional layouts briefly stored the canonical absolute identity.
+        # Read those files for compatibility, but never write this field again.
+        target_id = str(source_id or "").strip()
+        if not target_id and source_path:
+            target_id = _canonical_source_identity(source_path)
+        if target_id:
+            for source_key, loaded_id in self.loaded_source_ids.items():
+                if loaded_id == target_id and source_key in self.loaded_datasets:
+                    return source_key
+            return None
+        # Layouts written before source identities existed only contain the
+        # basename.  Resolve them only when that basename is unique.  Choosing
+        # the historical basename-keyed source while a collision sibling is
+        # loaded can silently plot the wrong flight.
+        basename_matches = []
+        wanted_basename = os.path.basename(os.path.normpath(file_name)) if file_name else ""
+        for source_key in self.loaded_datasets:
+            source_path_value = str(self.loaded_source_paths.get(source_key, "") or "")
+            loaded_basename = (
+                os.path.basename(os.path.normpath(source_path_value))
+                if source_path_value
+                else self._source_ui_name(source_key).split(" [", 1)[0]
+            )
+            if wanted_basename and loaded_basename == wanted_basename:
+                basename_matches.append(source_key)
+        if len(basename_matches) == 1:
+            return basename_matches[0]
+        if len(basename_matches) > 1:
+            return None
+        # A few old layouts used a non-basename application key.  Preserve
+        # that compatibility only when the key names one exact loaded source.
+        if file_name in self.loaded_datasets:
+            return file_name
+        return None
+
+    def _layout_source_file_name(self, source_key):
+        """Return a portable basename without exposing collision qualifiers."""
+
+        source_key = str(source_key or "")
+        source_path = str(self.loaded_source_paths.get(source_key, "") or "")
+        dataset = self.loaded_datasets.get(source_key)
+        if not source_path and dataset is not None:
+            source_path = str(getattr(dataset, "source_path", "") or "")
+        if source_path:
+            basename = os.path.basename(os.path.normpath(source_path))
+            if basename:
+                return basename
+        return source_key
+
+    def _layout_source_reference(self, source_key):
+        reference = {}
+        source_id = str(self.loaded_source_ids.get(source_key, "") or "")
+        if source_id:
+            source_token = _source_layout_token(source_id)
+            if source_token:
+                reference["source_token"] = source_token
+        return reference
+
     def _iter_tree_file_nodes(self):
         # 좌측 트리의 최상위(파일) 노드를 순회하며 반환. 보통 수정 X.
         root_item = self.tree_model.invisibleRootItem()
@@ -30898,7 +31178,7 @@ class MainWindow(QMainWindow):
             aircraft_type = file_node.data(Qt.UserRole + 1)
             is_active = (file_name == self.active_analysis_log and file_name in self.loaded_datasets)
             prefix = "▶ " if is_active else ""
-            file_node.setText(f"{prefix}{file_name} | Type : {aircraft_type}")
+            file_node.setText(f"{prefix}{self._source_ui_name(file_name)} | Type : {aircraft_type}")
             file_node.setForeground(QBrush(QColor("#1A2D57" if is_active else "#000000")))
 
     def _set_active_analysis_log(self, file_name, show_status=True):
@@ -30917,7 +31197,10 @@ class MainWindow(QMainWindow):
             self.apply_tree_search()
         if show_status:
             aircraft = self.loaded_aircraft_types.get(file_name, "Unknown")
-            self.statusBar().showMessage(f"Active Analysis Log: {file_name} | Aircraft Type: {aircraft}", 5000)
+            self.statusBar().showMessage(
+                f"Active Analysis Log: {self._source_ui_name(file_name)} | Aircraft Type: {aircraft}",
+                5000,
+            )
         return True
 
     def _remove_tree_file_node(self, file_name):
@@ -31002,6 +31285,8 @@ class MainWindow(QMainWindow):
         self.loaded_datasets.pop(file_name, None)
         self.loaded_aircraft_types.pop(file_name, None)
         self.loaded_log_metadata.pop(file_name, None)
+        self.loaded_source_ids.pop(file_name, None)
+        self.loaded_source_paths.pop(file_name, None)
         self._same_log_view_state.pop(file_name, None)
         self._remove_tree_file_node(file_name)
         # 남은 로그 인덱스가 시프트될 수 있어 코너 마커 색을 다시 칠함.
@@ -31031,7 +31316,7 @@ class MainWindow(QMainWindow):
         if self.loaded_datasets:
             self.file_drop_widget.setText(f"Total {len(self.loaded_datasets)} Log Load complete!\n(You can upload more logs)")
         else:
-            self.file_drop_widget.setText("Date(ulg) Upload\n(Multiple choices available)")
+            self.file_drop_widget.setText(self.file_drop_widget.idle_text())
 
         self.statusBar().showMessage(
             f"로그 삭제 완료: {file_name} (그래프 신호 {removed_plot_signals}개, Custom Series {removed_series}개 정리)",
@@ -31081,7 +31366,13 @@ class MainWindow(QMainWindow):
             if file_name and file_name in self.loaded_datasets:
                 new_order.append(file_name)
         if new_order:
-            for attr in ("loaded_datasets", "loaded_log_metadata", "loaded_aircraft_types"):
+            for attr in (
+                "loaded_datasets",
+                "loaded_log_metadata",
+                "loaded_aircraft_types",
+                "loaded_source_ids",
+                "loaded_source_paths",
+            ):
                 src = getattr(self, attr, None)
                 if not isinstance(src, dict):
                     continue
@@ -35832,18 +36123,35 @@ class MainWindow(QMainWindow):
             color = pen.color().name() if pen is not None else "#4DA3FF"
             width = float(pen.widthF()) if pen is not None else 1.5
             style_key = self._pen_style_to_key(pen)
-            signals.append(
-                {
-                    "file_name": file_name,
-                    "topic_name": topic_name,
-                    "signal_name": signal_name,
-                    "x_axis_col": x_axis_col,
-                    "is_fft": is_fft,
-                    "color": color,
-                    "style": style_key,
-                    "width": width,
-                }
-            )
+            signal_spec = {
+                # Runtime keys may contain a parent-folder qualifier to make
+                # two equal basenames readable in the current session.  The
+                # opaque token carries identity across layout save/restore;
+                # never persist that potentially sensitive qualifier.
+                "file_name": self._layout_source_file_name(file_name),
+                "topic_name": topic_name,
+                "signal_name": signal_name,
+                "x_axis_col": x_axis_col,
+                "is_fft": is_fft,
+                "color": color,
+                "style": style_key,
+                "width": width,
+            }
+            signal_spec.update(self._layout_source_reference(file_name))
+            signals.append(signal_spec)
+
+        special = plot.layout_special_spec
+        if isinstance(special, dict):
+            special = dict(special)
+            # Strip the short-lived path-bearing schema if an older layout was
+            # restored and then exported again.
+            special.pop("source_id", None)
+            special.pop("source_path", None)
+            special.pop("source_token", None)
+            special_file = str(special.get("file_name", "") or "")
+            if special_file:
+                special["file_name"] = self._layout_source_file_name(special_file)
+                special.update(self._layout_source_reference(special_file))
 
         return {
             "type": "plot",
@@ -35851,7 +36159,7 @@ class MainWindow(QMainWindow):
             "legend_visible": bool(plot.legend_visible),
             "value_overlay_visible": bool(getattr(plot, "value_overlay_visible", True)),
             "signals": signals,
-            "special": plot.layout_special_spec,
+            "special": special,
         }
 
     @staticmethod
@@ -36138,7 +36446,13 @@ class MainWindow(QMainWindow):
 
         special = node.get("special")
         if isinstance(special, dict) and special.get("kind") == "flight_path_2d":
-            file_name = special.get("file_name")
+            file_name = self._resolve_layout_source_key(
+                special.get("file_name"),
+                source_token=special.get("source_token", ""),
+                source_id=special.get("source_id", ""),
+                source_path=special.get("source_path", ""),
+            )
+            source_missing = file_name is None
             topic = special.get("topic")
             x_signal = special.get("x_signal")
             y_signal = special.get("y_signal")
@@ -36245,17 +36559,33 @@ class MainWindow(QMainWindow):
                                         "width": special.get("line_width", 1.8),
                                     }
                                 })
-                            plot.layout_special_spec = dict(special)
+                            restored_special = dict(special)
+                            restored_special["file_name"] = file_name
+                            restored_special.pop("source_id", None)
+                            restored_special.pop("source_path", None)
+                            restored_special.pop("source_token", None)
+                            restored_special.update(self._layout_source_reference(file_name))
+                            plot.layout_special_spec = restored_special
                             plot._sync_2d_path_style_to_layout_spec()
                         else:
                             missing_items.append("2D Flight Path")
                 except Exception:
                     missing_items.append("2D Flight Path")
             else:
-                missing_items.append("2D Flight Path")
+                missing_items.append(
+                    "2D Flight Path (원본 로그 불일치 · 재연결 필요)"
+                    if source_missing
+                    else "2D Flight Path"
+                )
 
         if isinstance(special, dict) and special.get("kind") in ("projected_3d_path", "true_3d_path"):
-            file_name = special.get("file_name")
+            file_name = self._resolve_layout_source_key(
+                special.get("file_name"),
+                source_token=special.get("source_token", ""),
+                source_id=special.get("source_id", ""),
+                source_path=special.get("source_path", ""),
+            )
+            source_missing = file_name is None
             topic = special.get("topic")
             z_topic = special.get("z_topic", topic)
             x_signal = special.get("x_signal")
@@ -36352,6 +36682,11 @@ class MainWindow(QMainWindow):
                         ):
                             plot.set_3d_path_style(color=line_color, style_key=line_style, width=line_width)
                             restored_special = dict(special)
+                            restored_special["file_name"] = file_name
+                            restored_special.pop("source_id", None)
+                            restored_special.pop("source_path", None)
+                            restored_special.pop("source_token", None)
+                            restored_special.update(self._layout_source_reference(file_name))
                             if getattr(plot, "_true_3d_enabled", False):
                                 restored_special["kind"] = "true_3d_path"
                             else:
@@ -36365,7 +36700,11 @@ class MainWindow(QMainWindow):
                 except Exception:
                     missing_items.append("3D Flight Path")
             else:
-                missing_items.append("3D Flight Path")
+                missing_items.append(
+                    "3D Flight Path (원본 로그 불일치 · 재연결 필요)"
+                    if source_missing
+                    else "3D Flight Path"
+                )
 
         self._restore_plot_signals_into(plot, node.get("signals", []), missing_items)
 
@@ -36373,9 +36712,20 @@ class MainWindow(QMainWindow):
         # (2026-05-31) _restore_plot_from_layout 의 마지막 시그널 루프를 추출 — overlay 붙여넣기에서도
         # 동일 로직 재사용. clear/title/legend 같은 plot-wide 속성은 손대지 않음.
         for sig in signals:
-            file_name = sig.get("file_name")
+            file_name = self._resolve_layout_source_key(
+                sig.get("file_name"),
+                source_token=sig.get("source_token", ""),
+                source_id=sig.get("source_id", ""),
+                source_path=sig.get("source_path", ""),
+            )
             topic_name = sig.get("topic_name")
             signal_name = sig.get("signal_name")
+            if file_name is None:
+                missing_items.append(
+                    f"{sig.get('file_name') or '로그'} | {topic_name}.{signal_name} "
+                    "(원본 로그 불일치 · 재연결 필요)"
+                )
+                continue
             x_axis_col = sig.get("x_axis_col", "timestamp_sec")
             is_fft = bool(sig.get("is_fft", False))
             color = sig.get("color")
@@ -37262,6 +37612,9 @@ class MainWindow(QMainWindow):
         self._log_load_active = active
         self.upload_progress_panel.setVisible(active)
         self.file_drop_widget.setEnabled(not active)
+        self.upload_progress_cancel_button.setEnabled(
+            active and not self._log_load_cancel_requested
+        )
         if active:
             self.file_drop_widget.setText("Log upload in progress...\n(Please wait)")
             return
@@ -37272,6 +37625,10 @@ class MainWindow(QMainWindow):
 
     def _on_log_load_progress(self, payload):
         # UI 수정 MainWindow._on_log_load_progress 상태 표시 UI 처리 변경
+        # Queued progress can arrive after the user pressed cancel.  Do not
+        # let it overwrite the explicit cooperative-cancellation message.
+        if self._log_load_cancel_requested or self._closing_requested:
+            return
         payload = dict(payload or {})
         total = max(int(payload.get("total", 0) or 0), 1)
         processed_before = int(payload.get("processed_before", 0) or 0)
@@ -37290,16 +37647,80 @@ class MainWindow(QMainWindow):
             2000,
         )
 
+    def cancel_log_load(self):
+        """Request a safe stop without forcibly terminating the reader.
+
+        Readers currently expose no mid-parse interruption API.  A cancel
+        request therefore waits for the active ``load_result`` (or PX4
+        post-processing helper) to return, discards its uncommitted result,
+        and prevents all later files from being opened.
+        """
+        worker = self._log_load_worker
+        thread = self._log_load_thread
+        if worker is None or thread is None:
+            return False
+        if self._log_load_cancel_requested:
+            return True
+
+        self._log_load_cancel_requested = True
+        try:
+            worker.request_cancel()
+        except RuntimeError:
+            # The QObject may already be queued for deletion; its thread
+            # completion/cleanup signal will finish the lifecycle.
+            pass
+        self.upload_progress_cancel_button.setEnabled(False)
+        self.upload_progress_status_label.setText("Log upload cancellation requested")
+        self.upload_progress_file_label.setText(
+            "현재 파일 읽기가 끝나는 즉시 안전하게 중단됩니다."
+        )
+        self.statusBar().showMessage(
+            "로그 로딩 취소 요청됨 | 현재 리더가 반환될 때까지 기다리는 중입니다.",
+        )
+        return True
+
+    def _on_log_file_loaded(self, payload):
+        """Commit one worker payload and record the real GUI outcome."""
+
+        try:
+            committed = bool(self._apply_loaded_log_result(payload))
+        except Exception as exc:
+            committed = False
+            payload_dict = dict(payload or {})
+            self._log_load_apply_failures.append(
+                {
+                    "file_path": str(payload_dict.get("file_path", "") or ""),
+                    "error": f"UI apply failed: {exc}",
+                }
+            )
+        if committed:
+            self._log_load_committed_count += 1
+        else:
+            self._log_load_rejected_count += 1
+        return committed
+
     def _apply_loaded_log_result(self, payload):
         # UI 수정 MainWindow._apply_loaded_log_result UI 처리 변경
+        # A queued fileLoaded signal may have been posted immediately before
+        # cancel/close.  Cancellation is a commit barrier: such a payload is
+        # intentionally ignored so tree/maps cannot gain a late source.
+        if self._log_load_cancel_requested or self._closing_requested:
+            return False
         payload = dict(payload or {})
         file_path = str(payload.get("file_path", "") or "")
         filename = str(payload.get("filename", "") or "")
         dataset = payload.get("dataset")
         aircraft_type = str(payload.get("aircraft_type", "Unknown") or "Unknown")
         metadata = payload.get("metadata")
-        if not filename or dataset is None or filename in self.loaded_datasets:
+        if not filename or dataset is None:
             return False
+
+        source_path = str(file_path or getattr(dataset, "source_path", "") or "")
+        source_id = str(payload.get("source_id", "") or "")
+        source_id = source_id or _canonical_source_identity(source_path)
+        if source_id and source_id in self._loaded_source_identity_set():
+            return False
+        source_key = self._allocate_loaded_source_key(filename, source_id)
 
         # Stage all fallible normalization before exposing the new source in
         # any of the three public loaded-log maps.  The tree insertion still
@@ -37319,25 +37740,33 @@ class MainWindow(QMainWindow):
             aircraft_label_before = current_ws.lbl_aircraft_type.text()
 
         try:
-            self.loaded_datasets[filename] = dataset
-            self.loaded_aircraft_types[filename] = aircraft_type
-            self.loaded_log_metadata[filename] = normalized_metadata
-            self._add_to_tree(filename, dataset, aircraft_type)
+            self.loaded_datasets[source_key] = dataset
+            self.loaded_aircraft_types[source_key] = aircraft_type
+            self.loaded_log_metadata[source_key] = normalized_metadata
+            self.loaded_source_ids[source_key] = source_id
+            self.loaded_source_paths[source_key] = source_path
+            self._add_to_tree(source_key, dataset, aircraft_type)
             if self.active_analysis_log is None:
-                self.active_analysis_log = filename
+                self.active_analysis_log = source_key
 
             if isinstance(current_ws, Workspace):
                 current_ws.set_aircraft_type(aircraft_type)
+            self._update_tree_file_node_styles()
             # UI 수정 로그 로드 완료 상태바 문구 변경
-            self.statusBar().showMessage(f"Loaded: {filename} | Aircraft Type: {aircraft_type}", 4000)
+            self.statusBar().showMessage(
+                f"Loaded: {self._source_ui_name(source_key)} | Aircraft Type: {aircraft_type}",
+                4000,
+            )
             return True
         except Exception:
             # A failed UI commit must not leave a source that appears loaded
             # in only the tree or only one metadata map.  The caller sees the
             # original error while the existing workspace stays valid.
-            self.loaded_datasets.pop(filename, None)
-            self.loaded_aircraft_types.pop(filename, None)
-            self.loaded_log_metadata.pop(filename, None)
+            self.loaded_datasets.pop(source_key, None)
+            self.loaded_aircraft_types.pop(source_key, None)
+            self.loaded_log_metadata.pop(source_key, None)
+            self.loaded_source_ids.pop(source_key, None)
+            self.loaded_source_paths.pop(source_key, None)
             self.active_analysis_log = active_before
             while root_item.rowCount() > tree_rows_before:
                 root_item.removeRow(root_item.rowCount() - 1)
@@ -37348,28 +37777,66 @@ class MainWindow(QMainWindow):
     def _cleanup_log_load_worker(self):
         self._log_load_worker = None
         self._log_load_thread = None
+        if self._close_when_log_load_finishes:
+            # The first closeEvent was deliberately ignored while the worker
+            # unwound.  Retry only after QThread has actually stopped, avoiding
+            # "QThread: Destroyed while thread is still running" shutdowns.
+            self._close_when_log_load_finishes = False
+            QTimer.singleShot(0, self.close)
 
     def _on_log_load_finished(self, summary):
         # UI 수정 MainWindow._on_log_load_finished UI 처리 변경
         summary = dict(summary or {})
-        loaded_count = int(summary.get("loaded_count", 0) or 0)
+        emitted_count = int(
+            summary.get("emitted_count", summary.get("loaded_count", 0)) or 0
+        )
+        loaded_count = int(self._log_load_committed_count or 0)
+        rejected_count = max(
+            int(self._log_load_rejected_count or 0),
+            max(0, emitted_count - loaded_count),
+        )
         skipped_missing = list(summary.get("skipped_missing") or [])
         skipped_duplicate = list(summary.get("skipped_duplicate") or [])
-        failed = list(summary.get("failed") or [])
+        failed = list(summary.get("failed") or []) + list(self._log_load_apply_failures)
+        cancelled = bool(summary.get("cancelled", False)) or self._log_load_cancel_requested
+        normalized_summary = dict(summary)
+        normalized_summary.pop("loaded_count", None)
+        normalized_summary.update(
+            {
+                "emitted_count": emitted_count,
+                "loaded_count": loaded_count,
+                "rejected_count": rejected_count,
+                "failed": failed,
+                "cancelled": cancelled,
+            }
+        )
+        self._last_log_load_summary = normalized_summary
 
         self._refresh_custom_series_list()
-        if loaded_count > 0:
+        if loaded_count > 0 and not cancelled and not self._closing_requested:
             if self.active_analysis_log not in self.loaded_datasets:
                 self.active_analysis_log = next(iter(self.loaded_datasets.keys()))
             self._update_tree_file_node_styles()
             self.show_log_info_dialog(target_file=self.active_analysis_log)
 
         # UI 수정 ULG 업로드 완료 상태 문구 변경
-        self.upload_progress_status_label.setText("Log upload complete")
+        self.upload_progress_status_label.setText(
+            "Log upload cancelled" if cancelled else "Log upload complete"
+        )
         self.upload_progress_file_label.setText("")
-        self.upload_progress_bar.setValue(100 if loaded_count > 0 else 0)
+        if not cancelled:
+            self.upload_progress_bar.setValue(100 if loaded_count > 0 else 0)
         self.statusBar().showMessage(
-            f"Log upload finished | loaded={loaded_count}, duplicate={len(skipped_duplicate)}, missing={len(skipped_missing)}, failed={len(failed)}",
+            (
+                "Log upload cancelled"
+                if cancelled
+                else "Log upload finished"
+            )
+            + (
+                f" | loaded={loaded_count}, rejected={rejected_count}, "
+                f"duplicate={len(skipped_duplicate)}, missing={len(skipped_missing)}, "
+                f"failed={len(failed)}"
+            ),
             5000,
         )
 
@@ -37383,12 +37850,15 @@ class MainWindow(QMainWindow):
             self._set_upload_progress_active(False)
 
         self._log_load_active = False
-        QTimer.singleShot(1200, _hide_progress_panel)
+        if self._closing_requested:
+            self._set_upload_progress_active(False)
+        else:
+            QTimer.singleShot(1200, _hide_progress_panel)
 
         # Parsing failures remain actionable even when another file in the
         # same batch loaded successfully.  Previously a partial success hid
         # the warning and left only a transient status-bar counter.
-        if failed:
+        if failed and not cancelled and not self._closing_requested:
             sample = failed[0]
             remaining = max(0, len(failed) - 1)
             extra = f"\n\n외 {remaining}개 파일도 불러오지 못했습니다." if remaining else ""
@@ -37397,7 +37867,7 @@ class MainWindow(QMainWindow):
                 "Log Load",
                 f"로그를 불러오지 못했습니다.\n\n{sample.get('file_path', '-')}\n{sample.get('error', '-')}{extra}",
             )
-        elif loaded_count == 0:
+        elif loaded_count == 0 and not cancelled and not self._closing_requested:
             if skipped_missing:
                 sample = skipped_missing[0]
                 QMessageBox.warning(
@@ -37409,6 +37879,8 @@ class MainWindow(QMainWindow):
 
     def load_log_files(self, file_paths):
         # UI 수정 MainWindow.load_log_files UI 처리 변경
+        if self._closing_requested:
+            return
         file_paths = [str(p).strip() for p in (file_paths or []) if str(p).strip()]
         if not file_paths:
             self.statusBar().showMessage("드롭된 항목에서 지원 로그 파일을 찾지 못했습니다.", 5000)
@@ -37417,6 +37889,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Log Upload", "이미 로그 업로드가 진행 중입니다. 현재 작업이 끝난 뒤 다시 시도해 주세요.")
             return
 
+        self._log_load_cancel_requested = False
+        self._log_load_committed_count = 0
+        self._log_load_rejected_count = 0
+        self._log_load_apply_failures = []
+        self._last_log_load_summary = None
         self._set_upload_progress_active(True)
         # UI 수정 ULG 업로드 대기 상태 문구 변경
         self.upload_progress_status_label.setText("Log upload queued")
@@ -37428,17 +37905,40 @@ class MainWindow(QMainWindow):
         self._log_load_worker = LogLoadWorker(
             file_paths=file_paths,
             existing_names=set(self.loaded_datasets.keys()),
+            existing_source_ids=self._loaded_source_identity_set(),
         )
         self._log_load_worker.moveToThread(self._log_load_thread)
         self._log_load_thread.started.connect(self._log_load_worker.run)
         self._log_load_worker.progressChanged.connect(self._on_log_load_progress)
-        self._log_load_worker.fileLoaded.connect(self._apply_loaded_log_result)
+        self._log_load_worker.fileLoaded.connect(self._on_log_file_loaded)
         self._log_load_worker.finished.connect(self._on_log_load_finished)
         self._log_load_worker.finished.connect(self._log_load_thread.quit)
         self._log_load_thread.finished.connect(self._cleanup_log_load_worker)
         self._log_load_thread.finished.connect(self._log_load_thread.deleteLater)
         self._log_load_worker.finished.connect(self._log_load_worker.deleteLater)
         self._log_load_thread.start()
+
+    def closeEvent(self, event):
+        """Defer closing until an active log reader reaches a safe boundary."""
+        thread = self._log_load_thread
+        if thread is not None:
+            self._closing_requested = True
+            self._close_when_log_load_finishes = True
+            self.cancel_log_load()
+            self.statusBar().showMessage(
+                "창 닫기 대기 중 | 현재 로그 리더가 반환되면 자동으로 종료됩니다."
+            )
+            event.ignore()
+            return
+
+        self._closing_requested = True
+        app = QApplication.instance()
+        if app is not None:
+            try:
+                app.removeEventFilter(self)
+            except Exception:
+                pass
+        super().closeEvent(event)
 
     def on_tree_search_changed(self, text):
         # UI 수정 MainWindow.on_tree_search_changed 트리 UI 처리 변경
@@ -37518,7 +38018,7 @@ class MainWindow(QMainWindow):
         root_item = self.tree_model.invisibleRootItem()
         tree_font_size = max(6.0, 14.0 * 0.6)
 
-        file_node = QStandardItem(f"{filename} | Type : {aircraft_type}")
+        file_node = QStandardItem(f"{self._source_ui_name(filename)} | Type : {aircraft_type}")
         file_node.setEditable(False)
         file_node.setData(filename, Qt.UserRole)
         file_node.setData(aircraft_type, Qt.UserRole + 1)
